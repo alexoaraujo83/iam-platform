@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Pool, PoolClient } from "pg";
+import { authorize } from "../../authorization/src/index.js";
 import type { AuthenticatedTenantContext } from "./authenticated-tenant.js";
 import { withAuthenticatedTenant } from "./authenticated-tenant.js";
 
@@ -25,9 +26,10 @@ const identity = { issuer: "https://issuer.example.test/", subject: "subject-1" 
 const activeMembership = {
   rows: [{ tenant_id: "tenant-a", principal_id: "principal-a", membership_id: "membership-a" }]
 };
+const requiredPermission = { resource: "freight", action: "read" };
 
 describe("withAuthenticatedTenant", () => {
-  it("verifies first and keeps tenant RLS context in the operation transaction", async () => {
+  it("verifies first and keeps authorized tenant work in the RLS transaction", async () => {
     const { client, query, release, statements } = fakeClient([
       activeMembership,
       { rows: [{ permission_key: "freight.read" }] }
@@ -49,6 +51,8 @@ describe("withAuthenticatedTenant", () => {
       verify,
       "signed-access-token",
       "tenant-a",
+      requiredPermission,
+      authorize,
       operation
     );
 
@@ -70,10 +74,37 @@ describe("withAuthenticatedTenant", () => {
       async () => identity,
       "signed-access-token",
       "tenant-a",
+      requiredPermission,
+      authorize,
       operation
     );
 
     expect(result).toBeNull();
+    expect(operation).not.toHaveBeenCalled();
+    expect(statements).toContain("ROLLBACK");
+    expect(statements).not.toContain("COMMIT");
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("denies a missing permission before protected work and rolls back", async () => {
+    const { client, statements, release } = fakeClient([
+      activeMembership,
+      { rows: [{ permission_key: "freight.read" }] }
+    ]);
+    const operation = vi.fn();
+
+    await expect(
+      withAuthenticatedTenant(
+        { connect: async () => client } as unknown as Pick<Pool, "connect">,
+        async () => identity,
+        "signed-access-token",
+        "tenant-a",
+        { resource: "freight", action: "delete" },
+        authorize,
+        operation
+      )
+    ).rejects.toThrow("authorization_denied");
+
     expect(operation).not.toHaveBeenCalled();
     expect(statements).toContain("ROLLBACK");
     expect(statements).not.toContain("COMMIT");
@@ -93,6 +124,8 @@ describe("withAuthenticatedTenant", () => {
         async () => identity,
         "signed-access-token",
         "tenant-a",
+        requiredPermission,
+        authorize,
         async () => { throw failure; }
       )
     ).rejects.toBe(failure);
@@ -112,10 +145,32 @@ describe("withAuthenticatedTenant", () => {
         async () => { throw failure; },
         "invalid-token",
         "tenant-a",
+        requiredPermission,
+        authorize,
         async () => "unreachable"
       )
     ).rejects.toBe(failure);
 
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty required permission before token verification", async () => {
+    const verify = vi.fn();
+    const connect = vi.fn();
+
+    await expect(
+      withAuthenticatedTenant(
+        { connect } as unknown as Pick<Pool, "connect">,
+        verify,
+        "signed-access-token",
+        "tenant-a",
+        { resource: " ", action: "read" },
+        authorize,
+        async () => "unreachable"
+      )
+    ).rejects.toThrow("invalid_required_permission");
+
+    expect(verify).not.toHaveBeenCalled();
     expect(connect).not.toHaveBeenCalled();
   });
 });
