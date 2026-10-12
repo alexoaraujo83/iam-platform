@@ -3,7 +3,7 @@ import { appendAuditEvent } from "./audit.js";
 
 describe("appendAuditEvent", () => {
   it("inserts a bounded, redacted-by-contract JSON event and returns its durable id", async () => {
-    const query = vi.fn(async (_text: string, _values?: unknown[]) => ({ rows: [{ id: "audit-1" }] }));
+    const query = vi.fn<(...args: [string, unknown[]?]) => Promise<{ rows: { id: string }[] }>>(async (_text, _values) => ({ rows: [{ id: "audit-1" }] }));
     const id = await appendAuditEvent({ query } as never, {
       tenantId: "tenant-1",
       actorPrincipalId: "principal-1",
@@ -22,7 +22,7 @@ describe("appendAuditEvent", () => {
   });
 
   it("rejects malformed actions and oversized metadata before writing", async () => {
-    const query = vi.fn();
+    const query = vi.fn<(...args: [string, unknown[]?]) => Promise<{ rows: { id: string }[] }>>();
     await expect(appendAuditEvent({ query } as never, {
       action: "Bearer eyJ.secret",
       targetType: "principal",
@@ -40,7 +40,7 @@ describe("appendAuditEvent", () => {
   });
 
   it("fails when persistence fails instead of silently dropping audit events", async () => {
-    const query = vi.fn(async () => { throw new Error("database unavailable"); });
+    const query = vi.fn<(...args: [string, unknown[]?]) => Promise<{ rows: { id: string }[] }>>(async () => { throw new Error("database unavailable"); });
     await expect(appendAuditEvent({ query } as never, {
       action: "identity.login",
       targetType: "principal",
