@@ -60,7 +60,8 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
       $$;
       ALTER ROLE iam_runtime LOGIN PASSWORD 'runtime-test-only' NOSUPERUSER NOBYPASSRLS;
       GRANT USAGE ON SCHEMA public TO iam_runtime;
-      GRANT SELECT, INSERT, UPDATE, DELETE ON tenants, memberships, roles, role_permissions, membership_roles, applications, audit_events TO iam_runtime;
+      GRANT SELECT, INSERT, UPDATE, DELETE ON tenants, memberships, roles, role_permissions, membership_roles, applications TO iam_runtime;
+      GRANT SELECT, INSERT ON audit_events TO iam_runtime;
       GRANT SELECT ON principals, external_identities, permissions TO iam_runtime;
     `);
 
