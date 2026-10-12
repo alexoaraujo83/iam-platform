@@ -25,7 +25,7 @@ CREATE TRIGGER audit_events_append_only
   FOR EACH ROW EXECUTE FUNCTION reject_audit_event_mutation();
 
 REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON audit_events FROM PUBLIC;
-DO $
+DO $$
 BEGIN
   -- The migration may run before the dedicated runtime role is provisioned.
   -- If present, remove mutation privileges without making role creation a prerequisite.
@@ -33,6 +33,6 @@ BEGIN
     EXECUTE 'REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON audit_events FROM iam_runtime';
   END IF;
 END
-$;
+$$;
 
 COMMIT;
