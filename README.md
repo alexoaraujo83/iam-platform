@@ -13,7 +13,7 @@ A provider-independent Identity and Access Management foundation for multi-tenan
 
 ## Current scope
 
-This repository contains shared domain contracts, an exact-match RBAC evaluator, an OIDC/JWT verifier package, a PostgreSQL schema migration and RLS tests, database-backed membership resolution, and a helper that keeps authenticated tenant work inside the same RLS-scoped transaction. The helper requires an explicit authorization evaluator and does not invoke protected work unless the required permission is allowed. An initial HTTP API now exists in `apps/api` with a health endpoint and a tenant-context route. It has HTTP-level tests, but is not yet deployed and has not been validated against a production database or target identity provider. An admin UI, durable audit operations and production operations remain pending.
+This repository contains shared domain contracts, an exact-match RBAC evaluator, an OIDC/JWT verifier package, a PostgreSQL schema migration and RLS tests, database-backed membership resolution, and a helper that keeps authenticated tenant work inside the same RLS-scoped transaction. The helper requires an explicit authorization evaluator and does not invoke protected work unless the required permission is allowed. An initial HTTP API now exists in `apps/api` with a health endpoint and a tenant-context route. It has HTTP-level tests, but is not yet deployed and has not been validated against a production database or target identity provider. An admin UI and durable audit operations remain pending. The API now has bounded HTTP/database settings and graceful shutdown; these controls still require deployment verification.
 
 ## Prerequisites
 
@@ -57,6 +57,10 @@ The CI integration suite applies the migration to PostgreSQL 16 and verifies tha
 ## Security notes
 
 Never put secrets in source control. A tenant claim does not prove membership. Do not deploy until the runtime HTTP/session integration, real-provider and deployment-database validation, comprehensive migration/RLS integration tests, durable audit, and operational controls are implemented and reviewed.
+
+## Production operations
+
+See [`docs/operations/production-readiness-runbook.md`](docs/operations/production-readiness-runbook.md) for real-provider OIDC tests, target-PostgreSQL/RLS verification, durable audit requirements, deployment/recovery procedures, and the evidence ledger. The runbook is intentionally explicit that CI success is not production evidence. Real-provider OIDC/JWKS, deployment database validation, durable audit implementation, and a restore drill remain release blockers until recorded as passing.
 
 ## Delivery governance
 
