@@ -85,7 +85,10 @@ export async function resolveActiveMembership(
   );
 
   const permissions = permissionRows.rows.map(({ permission_key }) => {
-    const separator = permission_key.indexOf(".");
+    const dot = permission_key.indexOf(".");
+    const colon = permission_key.indexOf(":");
+    const separators = [dot, colon].filter((index) => index >= 0);
+    const separator = separators.length > 0 ? Math.min(...separators) : -1;
     if (separator <= 0 || separator === permission_key.length - 1) {
       throw new Error("invalid_permission_key_format");
     }
