@@ -13,7 +13,7 @@ A provider-independent Identity and Access Management foundation for multi-tenan
 
 ## Current scope
 
-This repository contains shared domain contracts, an exact-match RBAC evaluator, an OIDC/JWT verifier package, a PostgreSQL schema migration and RLS tests, database-backed membership resolution, and a helper that keeps authenticated tenant work inside the same RLS-scoped transaction. There is not yet a deployed API or admin UI, and no production database or target identity provider has been validated. Durable audit operations and production operations remain pending.
+This repository contains shared domain contracts, an exact-match RBAC evaluator, an OIDC/JWT verifier package, a PostgreSQL schema migration and RLS tests, database-backed membership resolution, and a helper that keeps authenticated tenant work inside the same RLS-scoped transaction. The helper requires an explicit authorization evaluator and does not invoke protected work unless the required permission is allowed. There is not yet a deployed API or admin UI, and no production database or target identity provider has been validated. Durable audit operations and production operations remain pending.
 
 ## Prerequisites
 
@@ -43,7 +43,7 @@ Unit tests use generated signing keys and a local JWKS resolver. Production issu
 
 ## Authenticated tenant transaction
 
-Use `withAuthenticatedTenant` from the database package to verify an access token before acquiring a connection, resolve the active membership and DB-derived permissions, then run protected queries on the same explicit transaction where the RLS tenant setting was established. The callback must enforce the required permission through the authorization package. A missing membership fails closed. The helper is a composition primitive, not a deployed HTTP API or session service.
+Use `withAuthenticatedTenant` from the database package to verify an access token before acquiring a connection, resolve the active membership and DB-derived permissions, and pass an explicit required permission plus the shared deny-by-default authorization evaluator. Protected queries run on the same explicit transaction where the RLS tenant setting was established, and the callback is not invoked unless authorization allows. A missing membership fails closed. The helper is a composition primitive, not a deployed HTTP API or session service.
 
 ## PostgreSQL RLS evidence
 
