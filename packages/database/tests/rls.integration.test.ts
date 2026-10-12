@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -151,9 +150,5 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     );
     expect(result.rows[0]?.current_user).toBe("iam_runtime");
     expect(result.rows[0]?.row_count).toBe("0");
-  });
-
-  it("uses generated identifiers in fixtures without accepting client roles", () => {
-    expect(randomUUID()).toMatch(/^[0-9a-f-]{36}$/i);
   });
 });
