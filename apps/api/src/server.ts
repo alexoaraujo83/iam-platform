@@ -31,7 +31,28 @@ const verifyAccessToken = async (token: string) => {
   }
 };
 
-const pool = new Pool({ connectionString: requiredEnv("DATABASE_URL") });
+const pool = new Pool({
+  connectionString: requiredEnv("DATABASE_URL"),
+  max: positiveIntegerEnv("DATABASE_POOL_MAX", 10),
+  connectionTimeoutMillis: positiveIntegerEnv("DATABASE_CONNECT_TIMEOUT_MS", 5_000),
+  idleTimeoutMillis: positiveIntegerEnv("DATABASE_IDLE_TIMEOUT_MS", 30_000),
+  application_name: "iam-platform-api"
+});
+pool.on("error", () => {
+  // Do not log connection strings or driver errors that may contain infrastructure details.
+  console.error(JSON.stringify({ level: "error", event: "database_idle_client_error" }));
+});
+
+function positiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`invalid_positive_integer_configuration:${name}`);
+  }
+  return value;
+}
+
 const port = Number(process.env.PORT ?? "3000");
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error("invalid_port_configuration");
@@ -49,13 +70,49 @@ const server = createApiServer(async (accessToken, tenantId) =>
   )
 );
 
-server.listen(port, "0.0.0.0");
+server.requestTimeout = positiveIntegerEnv("HTTP_REQUEST_TIMEOUT_MS", 15_000);
+server.headersTimeout = positiveIntegerEnv("HTTP_HEADERS_TIMEOUT_MS", 10_000);
+server.keepAliveTimeout = positiveIntegerEnv("HTTP_KEEP_ALIVE_TIMEOUT_MS", 5_000);
 
-async function shutdown(): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    server.close((error) => error ? reject(error) : resolve());
-  });
-  await pool.end();
+server.listen(port, "0.0.0.0", () => {
+  console.info(JSON.stringify({ level: "info", event: "http_server_listening", port }));
+});
+
+let shutdownPromise: Promise<void> | undefined;
+async function shutdown(signal: "SIGTERM" | "SIGINT"): Promise<void> {
+  if (shutdownPromise) return shutdownPromise;
+
+  shutdownPromise = (async () => {
+    console.info(JSON.stringify({ level: "info", event: "shutdown_started", signal }));
+    const graceMs = positiveIntegerEnv("SHUTDOWN_GRACE_MS", 10_000);
+    let graceExpired = false;
+    const graceTimer = setTimeout(() => {
+      graceExpired = true;
+      console.error(JSON.stringify({ level: "error", event: "shutdown_grace_expired" }));
+      server.closeAllConnections();
+    }, graceMs);
+    graceTimer.unref();
+
+    try {
+      const closed = new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      });
+      // Stop idle keep-alive sockets immediately; in-flight requests get the grace period.
+      server.closeIdleConnections();
+      await closed;
+      await pool.end();
+      console.info(JSON.stringify({ level: "info", event: "shutdown_completed" }));
+    } catch {
+      console.error(JSON.stringify({ level: "error", event: "shutdown_failed" }));
+      process.exitCode = 1;
+    } finally {
+      clearTimeout(graceTimer);
+      if (graceExpired) process.exitCode = 1;
+    }
+  })();
+
+  return shutdownPromise;
 }
-process.once("SIGTERM", () => { void shutdown(); });
-process.once("SIGINT", () => { void shutdown(); });
+
+process.once("SIGTERM", () => { void shutdown("SIGTERM"); });
+process.once("SIGINT", () => { void shutdown("SIGINT"); });
