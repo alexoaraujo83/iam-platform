@@ -144,6 +144,23 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     expect(persisted.rows[0]?.status).toBe("active");
   });
 
+  it("does not delete another tenant's membership through a cross-tenant predicate", async () => {
+    const rowCount = await withTenant(tenantA, async (client) => {
+      const result = await client.query(
+        "DELETE FROM memberships WHERE tenant_id = $1 AND id = $2",
+        [tenantB, membershipB]
+      );
+      return result.rowCount;
+    });
+
+    expect(rowCount).toBe(0);
+    const persisted = await admin.query<{ status: string }>(
+      "SELECT status FROM memberships WHERE id = $1",
+      [membershipB]
+    );
+    expect(persisted.rows[0]?.status).toBe("active");
+  });
+
   it("does not permit the runtime role to bypass RLS", async () => {
     const result = await runtime.query<{ current_user: string; row_count: string }>(
       "SELECT current_user, (SELECT count(*) FROM tenants)::text AS row_count"
