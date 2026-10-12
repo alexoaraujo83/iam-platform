@@ -281,4 +281,48 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     expect(result.rows[0]?.current_user).toBe("iam_runtime");
     expect(result.rows[0]?.row_count).toBe("0");
   });
+  it("forces RLS on every tenant-owned table", async () => {
+    const result = await admin.query<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>(`
+      SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relname = ANY($1::text[])
+      ORDER BY c.relname
+    `, [["tenants", "memberships", "principals", "external_identities", "roles", "role_permissions", "membership_roles", "applications", "audit_events"]]);
+    expect(result.rows).toHaveLength(9);
+    expect(result.rows.every((row) => row.relrowsecurity && row.relforcerowsecurity)).toBe(true);
+  });
+
+  it("prevents the runtime role from updating durable audit events", async () => {
+    const eventId = await withTenant(tenantA, async (client) => {
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO audit_events (tenant_id, action, target_type, outcome, correlation_id)
+         VALUES ($1, 'security.audit_test', 'test', 'success', 'audit-append-only-test')
+         RETURNING id`,
+        [tenantA]
+      );
+      return inserted.rows[0]!.id;
+    });
+    await expect(withTenant(tenantA, async (client) => {
+      await client.query("UPDATE audit_events SET target_id = 'tampered' WHERE id = $1", [eventId]);
+    })).rejects.toMatchObject({ code: "42501" });
+  });
+
+  it("verifies runtime role is neither superuser nor RLS-bypass and does not own protected tables", async () => {
+    const role = await runtime.query<{ current_user: string; rolsuper: boolean; rolbypassrls: boolean }>(
+      `SELECT current_user, r.rolsuper, r.rolbypassrls
+         FROM pg_roles r WHERE r.rolname = current_user`
+    );
+    expect(role.rows[0]).toEqual({ current_user: "iam_runtime", rolsuper: false, rolbypassrls: false });
+    const ownership = await runtime.query<{ owned_count: string }>(`
+      SELECT count(*)::text AS owned_count
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relname = ANY($1::text[])
+        AND c.relowner = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+    `, [["tenants", "memberships", "principals", "external_identities", "roles", "role_permissions", "membership_roles", "applications", "audit_events"]]);
+    expect(ownership.rows[0]?.owned_count).toBe("0");
+  });
+
 });
