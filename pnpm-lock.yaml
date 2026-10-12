@@ -8,6 +8,11 @@ settings:
 importers:
 
   .:
+    configDependencies: {}
+    packageManagerDependencies:
+      pnpm:
+        specifier: 12.12.1
+        version: 12.12.1
     devDependencies:
       typescript:
         specifier: 7.0.2
