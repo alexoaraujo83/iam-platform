@@ -38,13 +38,6 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
-      - run: pnpm install --no-frozen-lockfile
-      - name: Export generated lockfile for bootstrap
-        uses: actions/upload-artifact@v4
-        with:
-          name: pnpm-lockfile-bootstrap-${{ github.sha }}
-          path: pnpm-lock.yaml
-          if-no-files-found: error
-          retention-days: 1
+      - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
