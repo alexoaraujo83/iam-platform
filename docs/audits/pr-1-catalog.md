@@ -3,7 +3,7 @@
 - Repository: `alexoaraujo83/iam-platform`
 - Pull request: [#1](https://github.com/alexoaraujo83/iam-platform/pull/1)
 - Scope: provider-independent IAM MVP foundation
-- Audit status: implementation reviewed; CI for the latest OIDC error-classification correction must pass before this catalog is considered validated.
+- Audit status: implementation reviewed; CI run #93 passed the code changes for OIDC error classification, HTTP 503 mapping, regression test and README update. The audit-catalog document itself was committed after run #93 and will be included in the next CI run.
 - Merge status: keep open; do not merge as part of this audit.
 
 ## File inventory
@@ -42,7 +42,7 @@
 
 ## Remaining gates — not proven by this PR's CI
 
-1. Run the latest CI after the OIDC outage classification changes and verify install, typecheck, build and all tests.
+1. Re-run CI on the final PR head (including this audit catalog) and verify install, typecheck, build and all tests.
 2. Add direct tests of the verifier-to-HTTP classification boundary, including invalid signature, remote JWKS timeout, network failure and unexpected verifier errors.
 3. Validate against a real configured OIDC provider and deployment PostgreSQL instance.
 4. Review migration privileges, RLS coverage for every future tenant-scoped table, and runtime database grants in the target environment.
