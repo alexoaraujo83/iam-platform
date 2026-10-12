@@ -46,6 +46,10 @@ export function createOidcVerifier(
       requiredClaims: ["iss", "sub", "aud", "exp", "iat"]
     });
 
+    if (typeof payload.iat === "number" && payload.iat > Math.floor(Date.now() / 1000) + 60) {
+      throw new Error("token_issued_in_future");
+    }
+
     return toVerifiedIdentity(payload);
   };
 }
