@@ -41,6 +41,10 @@ The GitHub Actions CI starts an ephemeral PostgreSQL 16 service, applies this mi
 
 Run this suite only against a disposable PostgreSQL database by setting `IAM_DATABASE_INTEGRATION=1`, `DATABASE_URL` (migration/test administrator), and `IAM_RUNTIME_DATABASE_URL` (runtime test role). The CI database is ephemeral; this is not production evidence.
 
+## Durable audit events
+
+`src/audit.ts` exports `appendAuditEvent(client, event)`. Invoke it with the same transaction/client as the security-sensitive state change when atomicity is required. Persistence errors are propagated; callers must not silently discard audit failures. Do not include tokens, credentials, authorization headers, or secrets in metadata. Migration `0002_durable_audit_controls.sql` adds bounded JSON metadata/request ID fields and blocks UPDATE/DELETE with SQLSTATE `42501`; runtime grants must be least privilege. Apply migrations in order with the migration owner.
+
 ## Deployment requirements
 
 - Apply migrations with a dedicated schema/migration owner.
@@ -48,6 +52,7 @@ Run this suite only against a disposable PostgreSQL database by setting `IAM_DAT
 - Grant runtime access explicitly; this migration intentionally does not create credentials or grant broad privileges.
 - Keep principals and external_identities behind trusted server-side service boundaries.
 - Audit records with NULL tenant_id are reserved for explicitly global security events and require separate authorization at the service layer.
+- Run `migrations/verify_runtime_security.sql` as the actual runtime role against the target database and preserve output as release evidence.
 - Extend integration coverage to all tenant-scoped tables and production migration/grant validation before production.
 - Validate the migration against the actual deployment database and verify runtime grants before any production claim.
 
