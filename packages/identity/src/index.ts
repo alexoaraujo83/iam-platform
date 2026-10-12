@@ -105,3 +105,5 @@ function toVerifiedIdentity(payload: JWTPayload): VerifiedExternalIdentity {
     expiresAt: payload.exp
   };
 }
+
+export { extractBearerToken } from "./bearer-token.js";
