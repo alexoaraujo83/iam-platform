@@ -65,8 +65,9 @@ describe("OIDC verifier", () => {
     const fixture = await makeFixture();
     const verifier = createOidcVerifier(config, fixture.keySet);
     const signed = await fixture.token();
-    const tampered = signed.slice(0, -1) + (signed.endsWith("A") ? "B" : "A");
-    await expect(verifier(tampered)).rejects.toThrow();
+    const [header, payload, signature] = signed.split(".");
+    const changedPayload = payload!.slice(0, -1) + (payload!.endsWith("A") ? "B" : "A");
+    await expect(verifier(`${header}.${changedPayload}.${signature}`)).rejects.toThrow();
   });
 
   it("rejects a token with the wrong issuer", async () => {
