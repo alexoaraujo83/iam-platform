@@ -21,13 +21,43 @@ const oidcConfig: IdentityProviderConfig = {
     .filter(Boolean)
 };
 const oidcVerifier = createOidcVerifier(oidcConfig);
+
+const INVALID_TOKEN_CODES = new Set([
+  "ERR_JWT_CLAIM_VALIDATION_FAILED",
+  "ERR_JWT_EXPIRED",
+  "ERR_JWT_INVALID",
+  "ERR_JWS_INVALID",
+  "ERR_JWS_SIGNATURE_VERIFICATION_FAILED",
+  "ERR_JOSE_ALG_NOT_ALLOWED",
+  "ERR_JWKS_NO_MATCHING_KEY",
+  "invalid_token",
+  "token_issued_in_future",
+  "invalid_verified_identity_claims"
+]);
+
 const verifyAccessToken = async (token: string) => {
   try {
     return await oidcVerifier(token);
-  } catch {
-    throw new Error("invalid_access_token");
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error &&
+      typeof error.code === "string" ? error.code :
+      error instanceof Error ? error.message.split(":", 1)[0] : undefined;
+
+    if (code && INVALID_TOKEN_CODES.has(code)) {
+      throw new Error("invalid_access_token");
+    }
+
+    // Network errors, remote JWKS timeouts and provider keyset failures are operational,
+    // not proof that the caller's credential is invalid.
+    if (error instanceof TypeError || code?.startsWith("ERR_JWKS_")) {
+      throw new Error("identity_provider_unavailable");
+    }
+
+    // Preserve unexpected failures as server errors instead of mislabeling them as 401.
+    throw error;
   }
 };
+
 const pool = new Pool({ connectionString: requiredEnv("DATABASE_URL") });
 const port = Number(process.env.PORT ?? "3000");
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
