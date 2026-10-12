@@ -1,37 +1,58 @@
 # Auth0 reference provider (OIDC)
 
-Status: reference integration and operating contract; not a platform dependency.
+Status: reference-provider setup specification for IAM Platform. The provider adapter and CI contract remain vendor-independent. This document is not evidence that an Auth0 tenant has already been created or configured.
 
-## Purpose
+## Decision and free-plan boundary (verified 2026-10-12)
 
-Auth0 is the first interoperability target for OIDC login and access-token verification. The IAM domain remains provider-independent: principals are keyed by the verified pair `(issuer, subject)`; tenant membership, roles, permissions, and policy decisions are stored and evaluated by IAM Platform. Auth0 Organizations may help route B2B login, but an `org_id`, email domain, email address, role claim, or client-supplied tenant identifier is not sufficient proof of IAM membership or authorization.
+Use a **dedicated Auth0 tenant for IAM Platform**, separate from the TMS tenant, so application registrations, callbacks, test users, Organizations, Actions, and secrets do not couple the projects.
 
-## Server-side configuration
+Auth0 Free currently lists OIDC-capable applications/APIs, up to 25,000 monthly active users, and up to **5 Organizations**. However, the current public pricing page does **not** include Pro/Enterprise MFA factors in Free; the MFA factors listed for paid plans must not be treated as usable after a trial expires. Therefore:
+
+- Free plan is acceptable for OIDC login/token validation and a reference Organization flow (within the 5-Organization limit).
+- Do not claim or require Auth0-enforced MFA in Free. If MFA is a release requirement, either use a plan that explicitly includes the required factor or implement and independently verify a separate MFA capability; do not simulate MFA by trusting a client claim.
+- Free-plan Organizations are a routing/onboarding feature only. IAM Platform remains authoritative for tenant membership, RBAC/ABAC, policy evaluation, and audit.
+- Avoid custom-domain verification if it asks for a credit card; use the default Auth0 domain.
+- Recheck the live dashboard and official pricing before relying on any quota or feature. A trial showing a toggle is not proof that it remains entitled on Free.
+
+## Create the reference configuration
+
+Create a **new tenant** in the Auth0 Dashboard with a unique available name for IAM Platform. Do not reuse the TMS tenant and do not put credentials in GitHub source. Use the tenant's actual region/domain as displayed by Auth0; do not assume a domain based on this document.
+
+1. Record the tenant domain and exact issuer (https://<tenant-domain>/) in the private deployment configuration.
+2. Create an API/resource server named "IAM Platform API". Set its identifier to a stable, environment-specific audience (for example, https://iam-platform-api-dev for development). Use that exact identifier as OIDC_AUDIENCE.
+3. Create a Regular Web Application for the IAM Platform web client. Start with local development URLs only when developing locally; add the actual deployed callback, logout, and web-origin URLs only after the deployment URLs are known. Never use wildcard callback URLs or wildcard origins.
+4. Keep the web client and API resource server distinct. Configure the API to issue JWT access tokens for the API audience; the API validates the access token, not an ID token.
+5. Use Universal Login and an allowed database/passkey/social connection as appropriate. Do not add secrets to a public SPA. Keep any confidential client secret in the server's secret manager only.
+6. For the Free-plan smoke test, create one test Organization (within the five-Organization cap) and a test user. Treat the org_id as context for routing only; link the verified (iss, sub) identity to an internal organization membership through an auditable IAM flow.
+7. Keep the Management API and tenant administration credentials out of normal runtime configuration. CI must not depend on a broad Management API client unless a separate, least-privilege automation setup is deliberately approved.
+
+## Runtime configuration
 
 Use deployment secrets/configuration, never request parameters or unverified token claims:
 
-```dotenv
-OIDC_ISSUER=https://tms-platform.us.auth0.com/
-OIDC_AUDIENCE=<the-exact-Auth0-API-identifier-for-this-environment>
-OIDC_JWKS_URI=https://tms-platform.us.auth0.com/.well-known/jwks.json
+~~~dotenv
+OIDC_ISSUER=https://<actual-tenant-domain>/
+OIDC_AUDIENCE=<exact-API-identifier-for-this-environment>
+OIDC_JWKS_URI=https://<actual-tenant-domain>/.well-known/jwks.json
 OIDC_ALLOWED_ALGORITHMS=RS256
-```
+~~~
 
-The issuer above records the existing Auth0 tenant as the reference example. Confirm the actual issuer and API identifier in the target tenant before enabling a deployment. Development, staging, and production must use explicit, environment-specific configuration. Never put client secrets, Management API tokens, or signing material in this file or in source control.
+The angle-bracket values are placeholders and must be replaced with the actual dashboard values. Development, staging, and production must use explicit environment-specific configuration. Never put client secrets, Management API tokens, signing material, or real tokens in this file or in source control.
 
 ## Verification contract
 
 The provider adapter must validate the signature against the configured JWKS, exact issuer, expected API audience, expiry, required claims, and a fixed allowlist of asymmetric algorithms. It must fail closed on malformed/expired tokens, issuer/audience mismatch, unavailable JWKS, and invalid configuration. JWKS caching/rotation and remote failure behavior need provider integration tests; unit tests must use generated local keys and must not require an Auth0 account or network.
 
-After token verification, map `(iss, sub)` to an internal principal and resolve active membership and permissions from PostgreSQL inside the transaction that sets the tenant-local RLS context. Never accept tenant membership or permission decisions solely from token claims.
+After token verification, map (iss, sub) to an internal principal and resolve active membership and permissions from PostgreSQL inside the transaction that sets the tenant-local RLS context. Never accept tenant membership or permission decisions solely from token claims. Never use email as the stable identity key.
 
 ## MFA, Organizations, and access policies
 
-- Treat Auth0 as the authentication/step-up provider where the selected subscription supports the required MFA factors and policies.
-- Keep authorization policies and permission checks enforceable by IAM Platform even if Auth0 MFA, Organizations, RBAC, or Actions are unavailable.
-- If the application requires MFA, define a server-side policy for which operations require step-up, verify the applicable assurance evidence supported by the chosen Auth0 flow, and test missing/insufficient assurance as a denial. Do not assume that a generic OIDC access token proves MFA occurred.
+- The Free plan is not a valid basis for an Auth0-enforced MFA requirement according to the current public plan comparison. Any trial-only behavior must be considered unavailable after the tenant moves to Free.
+- Until an MFA mechanism with verifiable assurance evidence is configured and tested, sensitive operations requiring MFA must be denied or explicitly remain out of scope; do not claim MFA protection.
+- Keep policy decisions enforceable by IAM Platform even if Auth0 MFA, Organizations, RBAC, or Actions are unavailable.
+- Do not assume a generic OIDC access token proves MFA occurred. When a supported MFA flow is later enabled, define server-side step-up requirements and test missing/insufficient assurance as a denial.
 - Organization login context is an input to identity routing, not the canonical tenant database. Link a verified external identity to a tenant through an explicit, auditable membership flow.
-- Avoid dependence on paid-only capabilities such as specific MFA factors, organization-scoped RBAC, M2M access for organizations, advanced attack protection, or audit-log streaming unless entitlement and cost have been confirmed.
+- Do not rely on Auth0 organization-scoped RBAC, advanced attack protection, audit-log streaming, or other paid-plan features unless entitlement and cost are confirmed.
 
 ## Provider-independent test matrix
 
@@ -39,19 +60,24 @@ The normal CI suite must not call Auth0 or require provider credentials. It shou
 
 A second OIDC implementation (for example, a local Keycloak test realm) should eventually run the same adapter contract suite to detect Auth0-specific assumptions.
 
-## Plan, limits, and commercial gate
+## Evidence checklist
 
-Checked against Auth0's public pricing and entity-limit pages on 2026-10-12; these are a snapshot, not a contractual quote:
+Record the following in the deployment/release evidence ledger; do not mark the provider integration as operational until the applicable items are proven:
 
-- The public pricing page currently lists Free with up to 25,000 monthly active users and 5 Organizations, while Essentials lists 10 Organizations and MFA capabilities beyond Free. The exact MFA factor set differs by tier; phone/email/WebAuthn/push should not be assumed available on Free.
-- Auth0's entity-limit policy separately defines hard entity limits; those are not the same as plan entitlements. For example, the Free tenant has limits on applications, API resource servers, admins, and social connections.
-- Custom-domain setup may require card verification, according to the public pricing page.
-- Feature availability, regional terms, trial conversion, MAU counting, rate limits, retention, and pricing can change or vary by contract.
+- [ ] Dedicated IAM Platform Auth0 tenant exists; actual domain, region, and issuer recorded.
+- [ ] API/resource server exists; exact audience recorded.
+- [ ] Web application callback/logout/origin allowlists contain only the required exact URLs.
+- [ ] Public configuration contains no secret; confidential credentials are stored outside source control.
+- [ ] JWKS URL responds and a real access token has the expected issuer and audience.
+- [ ] Valid token succeeds; invalid signature, issuer, audience, expiry, and missing subject fail closed.
+- [ ] Unknown identity, missing/inactive membership, missing permission, and cross-tenant access are denied.
+- [ ] Organization behavior is tested within the Free limit; IAM database remains canonical.
+- [ ] MFA entitlement is explicitly recorded. If unavailable on Free, no protected operation is represented as MFA-verified.
+- [ ] A deployment smoke test is recorded separately from unit/CI evidence.
 
-Before depending on any feature, verify the live tenant's plan, entitlement and limits in the dashboard and official pricing/docs; record the date and evidence in the deployment checklist. The platform must still boot and pass its provider-independent tests if Auth0 plan features change. No production requirement should silently depend on a paid feature or on a free-tier quota.
+## References
 
-References:
-- [Auth0 pricing](https://auth0.com/pt/pricing)
+- [Auth0 pricing (official)](https://auth0.com/pt/pricing)
 - [Auth0 entity limit policy](https://auth0.com/docs/troubleshoot/customer-support/operational-policies/entity-limit-policy)
 - [Auth0 Organizations setup](https://auth0.com/docs/manage-users/organizations/create-first-organization)
 - [Auth0 MFA documentation](https://auth0.com/docs/secure/multi-factor-authentication)
