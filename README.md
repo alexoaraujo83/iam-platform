@@ -34,6 +34,7 @@ This repository contains shared domain contracts, an exact-match RBAC evaluator,
 - `packages/database`: PostgreSQL schema, RLS tests, membership resolver and authenticated-tenant transaction helper
 - `apps/api`: HTTP API, OIDC-backed tenant-context endpoint and HTTP denial-path tests
 - `docs/architecture`: architecture boundaries and tenancy invariants
+- `docs/identity/auth0-reference.md`: Auth0 OIDC reference configuration, provider-independent test contract, and explicit plan/entitlement gate
 - `docs/security`: initial threat model and required security gates
 
 ## OIDC verifier boundary
