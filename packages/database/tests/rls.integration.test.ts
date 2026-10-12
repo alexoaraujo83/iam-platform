@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { resolveActiveMembership } from "../src/membership-resolution.js";
 
 const enabled =
   process.env.IAM_DATABASE_INTEGRATION === "1" &&
@@ -127,6 +128,23 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
   afterAll(async () => {
     await runtime.end();
     await admin.end();
+  });
+
+  it("resolves an active external identity and persisted permissions as the restricted runtime role", async () => {
+    const resolved = await withTenant(tenantA, (client) =>
+      resolveActiveMembership(
+        client,
+        { issuer: "https://issuer.example.test", subject: "subject-a" },
+        tenantA
+      )
+    );
+
+    expect(resolved).toEqual({
+      tenantId: tenantA,
+      principalId: principalA,
+      membershipId: membershipA,
+      permissions: [{ resource: "freight", action: "read" }]
+    });
   });
 
   it("denies visibility when no transaction-local tenant context is set", async () => {
