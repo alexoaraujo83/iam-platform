@@ -46,7 +46,7 @@ export function createApiServer(resolveTenantContext: ResolveTenantContext): Ser
       sendJson(response, 400, { error: "invalid_tenant_id" });
       return;
     }
-    if (!tenantId.trim() || tenantId.length > 128) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tenantId)) {
       sendJson(response, 400, { error: "invalid_tenant_id" });
       return;
     }
