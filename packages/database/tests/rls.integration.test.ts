@@ -44,6 +44,11 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
       "utf8"
     );
     await admin.query(migration);
+    const auditMigration = await readFile(
+      new URL("../migrations/0002_durable_audit_controls.sql", import.meta.url),
+      "utf8"
+    );
+    await admin.query(auditMigration);
 
     await admin.query(`
       DO $$
