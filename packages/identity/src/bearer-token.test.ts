@@ -11,6 +11,11 @@ describe("extractBearerToken", () => {
     expect(extractBearerToken("bEaReR\topaque-token")).toBe("opaque-token");
   });
 
+  it("rejects trailing CR/LF to prevent header injection", () => {
+    expect(extractBearerToken("Bearer token\\n")).toBeNull();
+    expect(extractBearerToken("Bearer token\\r")).toBeNull();
+  });
+
   it.each([
     undefined,
     ["Bearer token", "Bearer other"],
