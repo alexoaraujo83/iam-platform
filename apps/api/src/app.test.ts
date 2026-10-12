@@ -86,6 +86,13 @@ describe("IAM HTTP API", () => {
     expect(await response.json()).toEqual({ error: "invalid_access_token" });
   });
 
+  it("returns a sanitized 503 when the identity provider is unavailable", async () => {
+    const response = await requestApi(async () => { throw new Error("identity_provider_unavailable:upstream-timeout"); },
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/context", { authorization: "Bearer valid-token" });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "identity_provider_unavailable" });
+  });
+
   it("returns a sanitized 500 for unexpected resolver failures", async () => {
     const response = await requestApi(async () => { throw new Error("database password leaked"); },
       "/v1/tenants/11111111-1111-4111-8111-111111111111/context", { authorization: "Bearer valid-token" });
