@@ -26,6 +26,8 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
+      # Isolate pnpm from the runner image\x27s legacy PNPM_HOME layout.
+      PNPM_HOME: ${{ runner.temp }}/pnpm-home
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/iam_test
       IAM_RUNTIME_DATABASE_URL: postgres://iam_runtime:runtime-test-only@localhost:5432/iam_test
       IAM_DATABASE_INTEGRATION: "1"
