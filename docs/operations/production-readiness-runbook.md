@@ -47,7 +47,7 @@ CI PostgreSQL tests are necessary but are not deployment evidence.
 
 ## 3. Durable audit controls
 
-Before production, persist security-relevant events (authentication outcomes, membership changes, permission denials, privileged administration, tenant-boundary denials and configuration changes) to PostgreSQL in a transactionally consistent append-only audit store.
+The repository now includes `packages/database/src/audit.ts`, an append-only migration (`0002_durable_audit_controls.sql`), and unit/integration tests. Before production, wire `appendAuditEvent` into each security-sensitive flow and persist security-relevant events (authentication outcomes, membership changes, permission denials, privileged administration, tenant-boundary denials and configuration changes) to PostgreSQL in a transactionally consistent append-only audit store.
 
 Minimum event fields: generated event ID, UTC timestamp, outcome, action, actor principal (nullable for unauthenticated events), tenant (nullable where not yet trusted), target type/ID, correlation/request ID, and a minimal redacted metadata object. Never store access tokens, credentials, authorization headers, secrets, or unnecessary personal data.
 
