@@ -27,7 +27,7 @@ export function createApiServer(resolveTenantContext: ResolveTenantContext): Ser
       return;
     }
 
-    const match = /^\/v1\/tenants\/([^/]+)\/context$/.exec(url.pathname);
+    const match = /^\\/v1\\/tenants\\/([^/]+)\\/context$/.exec(url.pathname);
     if (request.method !== "GET" || !match?.[1]) {
       sendJson(response, 404, { error: "not_found" });
       return;
@@ -71,6 +71,10 @@ export function createApiServer(resolveTenantContext: ResolveTenantContext): Ser
       }
       if (errorCode === "invalid_access_token") {
         sendJson(response, 401, { error: "invalid_access_token" });
+        return;
+      }
+      if (errorCode === "identity_provider_unavailable") {
+        sendJson(response, 503, { error: "identity_provider_unavailable" });
         return;
       }
       sendJson(response, 500, { error: "internal_server_error" });
