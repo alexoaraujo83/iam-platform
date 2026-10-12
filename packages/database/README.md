@@ -14,17 +14,18 @@ Tenant-owned tables use ENABLE ROW LEVEL SECURITY and FORCE ROW LEVEL SECURITY. 
 
 ## Authenticated tenant transaction
 
-`src/authenticated-tenant.ts` composes token verification, membership resolution, and protected database work:
+`src/authenticated-tenant.ts` composes token verification, membership resolution, authorization, and protected database work:
 
-1. Verify the access token before acquiring a database connection.
+1. Validate the required permission and verify the access token before acquiring a database connection.
 2. Start an explicit PostgreSQL transaction.
 3. Resolve the active membership and DB-derived permissions, setting `app.tenant_id` transaction-locally.
-4. Invoke the protected-operation callback on the same client/transaction.
-5. Commit on success; roll back on missing membership or errors; always release the client.
+4. Call the supplied authorization evaluator for the exact required permission. If it denies, protected work is not invoked and the transaction is rolled back.
+5. Invoke the protected-operation callback on the same client/transaction only after authorization allows.
+6. Commit on success; roll back on missing membership, denial, or errors; always release the client.
 
-Pass a verifier created from trusted server-side OIDC configuration (for example `createOidcVerifier`). Never pass decoded, unverified JWT claims. The callback must call the deny-by-default authorization evaluator for the operation's required permission before doing protected work. Keep all tenant-scoped queries inside that callback; a transaction-local RLS setting does not survive commit.
+Pass a verifier created from trusted server-side OIDC configuration (for example `createOidcVerifier`) and the shared deny-by-default `authorize` evaluator from the authorization package. Never pass decoded, unverified JWT claims or an allow-all evaluator. Keep all tenant-scoped queries inside the callback; a transaction-local RLS setting does not survive commit.
 
-The unit tests cover membership resolution and transaction lifecycle, including verification failure before DB acquisition, missing membership, rollback, and client release. These tests do not replace end-to-end validation with a real OIDC provider and PostgreSQL.
+The unit tests cover membership resolution and transaction lifecycle, including verification failure before DB acquisition, missing membership, explicit RBAC denial before protected work, rollback, and client release. These tests do not replace end-to-end validation with a real OIDC provider and PostgreSQL.
 
 ## Automated integration evidence
 
