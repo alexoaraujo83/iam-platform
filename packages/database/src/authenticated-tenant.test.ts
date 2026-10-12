@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Pool, PoolClient } from "pg";
-import { authorize } from "../../authorization/src/index.js";
-import type { AuthenticatedTenantContext } from "./authenticated-tenant.js";
+import type { AuthenticatedTenantContext, AuthorizationEvaluator } from "./authenticated-tenant.js";
 import { withAuthenticatedTenant } from "./authenticated-tenant.js";
 
 function fakeClient(results: Array<{ rows: unknown[] }> = []) {
@@ -28,6 +27,13 @@ const activeMembership = {
 };
 const requiredPermission = { resource: "freight", action: "read" };
 
+// Mirrors the evaluator contract; the application must inject the shared RBAC evaluator.
+const exactMatchEvaluator: AuthorizationEvaluator = (context, required) => ({
+  effect: context.permissions.some(
+    (permission) => permission.resource === required.resource && permission.action === required.action
+  ) ? "allow" : "deny"
+});
+
 describe("withAuthenticatedTenant", () => {
   it("verifies first and keeps authorized tenant work in the RLS transaction", async () => {
     const { client, query, release, statements } = fakeClient([
@@ -52,7 +58,7 @@ describe("withAuthenticatedTenant", () => {
       "signed-access-token",
       "tenant-a",
       requiredPermission,
-      authorize,
+      exactMatchEvaluator,
       operation
     );
 
@@ -75,7 +81,7 @@ describe("withAuthenticatedTenant", () => {
       "signed-access-token",
       "tenant-a",
       requiredPermission,
-      authorize,
+      exactMatchEvaluator,
       operation
     );
 
@@ -100,7 +106,7 @@ describe("withAuthenticatedTenant", () => {
         "signed-access-token",
         "tenant-a",
         { resource: "freight", action: "delete" },
-        authorize,
+        exactMatchEvaluator,
         operation
       )
     ).rejects.toThrow("authorization_denied");
@@ -125,7 +131,7 @@ describe("withAuthenticatedTenant", () => {
         "signed-access-token",
         "tenant-a",
         requiredPermission,
-        authorize,
+        exactMatchEvaluator,
         async () => { throw failure; }
       )
     ).rejects.toBe(failure);
@@ -146,7 +152,7 @@ describe("withAuthenticatedTenant", () => {
         "invalid-token",
         "tenant-a",
         requiredPermission,
-        authorize,
+        exactMatchEvaluator,
         async () => "unreachable"
       )
     ).rejects.toBe(failure);
@@ -165,7 +171,7 @@ describe("withAuthenticatedTenant", () => {
         "signed-access-token",
         "tenant-a",
         { resource: " ", action: "read" },
-        authorize,
+        exactMatchEvaluator,
         async () => "unreachable"
       )
     ).rejects.toThrow("invalid_required_permission");
