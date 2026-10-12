@@ -5,29 +5,53 @@ export type VerifyAccessToken = (token: string) => Promise<VerifiedIdentity>;
 
 export interface AuthenticatedTenantContext extends ResolvedMembership {}
 
+export interface RequiredPermission {
+  readonly resource: string;
+  readonly action: string;
+}
+
+export type AuthorizationEvaluator = (
+  context: AuthenticatedTenantContext,
+  required: RequiredPermission
+) => { readonly effect: "allow" | "deny" };
+
 /**
- * Runs a tenant-scoped operation only after cryptographic token verification
- * and database-backed active-membership resolution.
+ * Runs a tenant-scoped operation only after cryptographic token verification,
+ * database-backed active-membership resolution, and an explicit RBAC decision.
  *
  * The callback runs inside the SAME transaction where app.tenant_id was set,
- * so PostgreSQL RLS remains scoped for all callback queries. The callback must
- * enforce the required permission with the deny-by-default authorization
- * package before performing protected work.
+ * so PostgreSQL RLS remains scoped for all callback queries. The required
+ * permission and evaluator are mandatory; the callback is never invoked when
+ * authorization denies the request.
  *
  * The verifier must be built from trusted server-side OIDC configuration
- * (for example createOidcVerifier); never implement this callback by decoding
- * a JWT or by trusting caller-supplied issuer/subject claims.
+ * (for example createOidcVerifier); never decode a JWT or trust caller-supplied
+ * issuer/subject claims. Pass the shared deny-by-default evaluator from the
+ * authorization package, not an allow-all implementation.
  *
  * Returns null when the token has no active membership in the requested tenant.
- * Verification, database, and callback errors are propagated after rollback.
+ * Verification, database, authorization-denial, and callback errors are
+ * propagated after rollback where a transaction has started.
  */
 export async function withAuthenticatedTenant<T>(
   pool: Pick<Pool, "connect">,
   verifyAccessToken: VerifyAccessToken,
   accessToken: string,
   tenantId: string,
+  requiredPermission: RequiredPermission,
+  evaluateAuthorization: AuthorizationEvaluator,
   operation: (client: PoolClient, context: AuthenticatedTenantContext) => Promise<T>
 ): Promise<T | null> {
+  if (
+    !requiredPermission ||
+    typeof requiredPermission.resource !== "string" ||
+    !requiredPermission.resource.trim() ||
+    typeof requiredPermission.action !== "string" ||
+    !requiredPermission.action.trim()
+  ) {
+    throw new Error("invalid_required_permission");
+  }
+
   // Verify before opening a DB connection; identity is not membership.
   const identity = await verifyAccessToken(accessToken);
   const client = await pool.connect();
@@ -44,6 +68,10 @@ export async function withAuthenticatedTenant<T>(
       return null;
     }
 
+    if (evaluateAuthorization(context, requiredPermission).effect !== "allow") {
+      throw new Error("authorization_denied");
+    }
+
     const result = await operation(client, context);
     await client.query("COMMIT");
     transactionStarted = false;
@@ -53,7 +81,7 @@ export async function withAuthenticatedTenant<T>(
       try {
         await client.query("ROLLBACK");
       } catch {
-        // Preserve the original authentication/operation error.
+        // Preserve the original authentication/authorization/operation error.
       }
     }
     throw error;
