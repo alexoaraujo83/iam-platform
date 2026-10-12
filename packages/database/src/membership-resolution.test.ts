@@ -3,7 +3,7 @@ import type { PoolClient } from "pg";
 import { resolveActiveMembership } from "./membership-resolution.js";
 
 function clientWithResults(results: Array<{ rows: unknown[] }>) {
-  const query = vi.fn(async () => {
+  const query = vi.fn(async (_text: string, _values?: unknown[]) => {
     const result = results.shift();
     if (!result) throw new Error("unexpected_query");
     return result;
