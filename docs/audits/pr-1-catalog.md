@@ -3,7 +3,7 @@
 - Repository: `alexoaraujo83/iam-platform`
 - Pull request: [#1](https://github.com/alexoaraujo83/iam-platform/pull/1)
 - Scope: provider-independent IAM MVP foundation
-- Audit status: implementation reviewed; CI run #93 passed the initial OIDC classification/503 changes, and run #95 passed the audit catalog and API outage regression. Direct unit tests for the classifier were added afterward; final CI for the latest head is pending.
+- Audit status: implementation reviewed; CI run #99 passed the prior head. A subsequent runtime-database privilege review found and patched missing tenant-scoped read policies for identity tables; CI for these new changes is pending.
 - Merge status: keep open; do not merge as part of this audit.
 
 ## File inventory
@@ -39,16 +39,16 @@
 | IAM-PR1-003 | Medium | API HTTP tests had previously been excluded from the root Vitest include pattern. | Fixed `vitest.config.ts` to include both `apps/**/*.test.ts` and `packages/**/*.test.ts`; prior CI run #88 passed the API suite. |
 | IAM-PR1-004 | Medium | Tenant route accepted arbitrary tenant path strings before querying the resolver. | UUID format validation and regression test return 400 before resolver/database work. |
 | IAM-PR1-005 | Low | Invalid-token HTTP classification previously compared the entire error message, failing when a diagnostic suffix was present. | Classifies stable error-code prefix; prior CI run #88 passed 63/63 tests. |
+| IAM-PR1-006 | High | The runtime resolver reads `principals`, `external_identities` and `permissions`, but the restricted CI runtime role lacked SELECT grants on these tables; unrestricted grants to global identity tables would expose cross-tenant identity data. | Migration now applies ENABLE/FORCE RLS to `principals` and `external_identities`, restricting reads to principals with an active membership in the transaction-scoped tenant. The test runtime role receives SELECT-only access to these tables and `permissions`; integration tests now seed and assert tenant-scoped identity visibility. CI validation pending. |
 
 ## Remaining gates — not proven by this PR's CI
 
-1. Re-run CI on the final PR head (including this audit catalog) and verify install, typecheck, build and all tests.
-2. Verify the latest CI run includes the direct OIDC classification tests and all PostgreSQL RLS integration tests.
-3. Validate against a real configured OIDC provider and deployment PostgreSQL instance.
-4. Review migration privileges, RLS coverage for every future tenant-scoped table, and runtime database grants in the target environment.
-5. Implement durable audit write/read/retention and operational alerting/metrics.
-6. Implement and review administration and lifecycle workflows before production claims.
-7. Keep the PR open pending final diff/check review; do not treat a technical comment by the PR author as independent approval.
+1. Run CI after the identity-table RLS/grant changes and verify frozen install, typecheck, build, OIDC tests and PostgreSQL integration tests.
+2. Validate against a real configured OIDC provider and deployment PostgreSQL instance.
+3. Review RLS coverage for every future tenant-scoped table and verify runtime grants in the target environment.
+4. Implement durable audit write/read/retention and operational alerting/metrics.
+5. Implement and review administration and lifecycle workflows before production claims.
+6. Keep the PR open pending final diff/check review; do not treat a technical comment by the PR author as independent approval.
 
 ## Evidence boundary
 
