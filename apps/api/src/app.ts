@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { extractBearerToken } from "@iam-platform/identity";
 
 export interface TenantContextResponse {
   readonly tenantId: string;
@@ -32,8 +33,8 @@ export function createApiServer(resolveTenantContext: ResolveTenantContext): Ser
       return;
     }
 
-    const authorization = request.headers.authorization;
-    if (typeof authorization !== "string" || !/^Bearer [^\s,]+$/i.test(authorization)) {
+    const accessToken = extractBearerToken(request.headers.authorization);
+    if (!accessToken) {
       sendJson(response, 401, { error: "invalid_or_missing_bearer_token" });
       return;
     }
@@ -51,7 +52,7 @@ export function createApiServer(resolveTenantContext: ResolveTenantContext): Ser
     }
 
     try {
-      const context = await resolveTenantContext(authorization.slice(7), tenantId);
+      const context = await resolveTenantContext(accessToken, tenantId);
       if (!context) {
         sendJson(response, 403, { error: "active_membership_required" });
         return;
