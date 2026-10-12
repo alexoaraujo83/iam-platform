@@ -19,7 +19,7 @@ async function requestApi(
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as AddressInfo;
-  return fetch(`http://127.0.0.1:${address.port}${path}`, { headers });
+  return fetch(`http://127.0.0.1:${address.port}${path}`, headers ? { headers } : {});
 }
 
 afterEach(async () => {
