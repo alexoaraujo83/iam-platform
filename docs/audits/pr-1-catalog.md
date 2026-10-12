@@ -3,7 +3,7 @@
 - Repository: `alexoaraujo83/iam-platform`
 - Pull request: [#1](https://github.com/alexoaraujo83/iam-platform/pull/1)
 - Scope: provider-independent IAM MVP foundation
-- Audit status: implementation reviewed; CI run #99 passed the prior head. A subsequent runtime-database privilege review found and patched missing tenant-scoped read policies for identity tables; CI for these new changes is pending.
+- Audit status: implementation reviewed; CI run #103 passed on head `b5dc44246aa947ab802bca626969a43c0978364d`, including frozen install, typecheck, production build, API/unit tests and PostgreSQL 16 RLS integration tests.
 - Merge status: keep open; do not merge as part of this audit.
 
 ## File inventory
@@ -27,6 +27,7 @@
 - RBAC uses deny-by-default exact permission matching.
 - Tenant operations are composed in an explicit transaction with membership resolution, authorization, rollback and connection release.
 - PostgreSQL migration applies ENABLE and FORCE RLS to tenant-scoped tables; CI exercises a restricted runtime role against PostgreSQL 16.
+- The runtime resolver maps a verified issuer/subject to an active local membership and persisted permissions.
 - API responses avoid caching and set `X-Content-Type-Options: nosniff`; unexpected errors are sanitized.
 - CI enforces frozen dependency installation, typecheck, build and tests; Dependabot is configured for npm and GitHub Actions.
 
@@ -35,20 +36,19 @@
 | ID | Severity | Finding | Disposition / evidence |
 |---|---|---|---|
 | IAM-PR1-001 | High | The API server wrapped every OIDC verifier exception as `invalid_access_token`, so JWKS/network outages could be reported as client authentication failures (401). | Corrected in `apps/api/src/server.ts`: recognized token-validation failures map to `invalid_access_token`; remote JWKS errors/network `TypeError` map to `identity_provider_unavailable`; unknown failures remain server errors. |
-| IAM-PR1-002 | Medium | API did not distinguish identity-provider outages from unexpected internal failures. | Added sanitized 503 mapping in `apps/api/src/app.ts`, HTTP regression test in `apps/api/src/app.test.ts`, and README documentation. Isolated the verifier error classifier in `apps/api/src/oidc-error.ts` and added direct tests for invalid credentials, remote JWKS failures, network errors and unexpected exceptions. |
-| IAM-PR1-003 | Medium | API HTTP tests had previously been excluded from the root Vitest include pattern. | Fixed `vitest.config.ts` to include both `apps/**/*.test.ts` and `packages/**/*.test.ts`; prior CI run #88 passed the API suite. |
+| IAM-PR1-002 | Medium | API did not distinguish identity-provider outages from unexpected internal failures. | Added sanitized 503 mapping in `apps/api/src/app.ts`, HTTP regression test in `apps/api/src/app.test.ts`, and README documentation. `apps/api/src/oidc-error.ts` has direct tests for invalid credentials, remote JWKS failures, network errors and unexpected exceptions. |
+| IAM-PR1-003 | Medium | API HTTP tests had previously been excluded from the root Vitest include pattern. | Fixed `vitest.config.ts` to include both `apps/**/*.test.ts` and `packages/**/*.test.ts`; subsequent CI runs passed the API suite. |
 | IAM-PR1-004 | Medium | Tenant route accepted arbitrary tenant path strings before querying the resolver. | UUID format validation and regression test return 400 before resolver/database work. |
-| IAM-PR1-005 | Low | Invalid-token HTTP classification previously compared the entire error message, failing when a diagnostic suffix was present. | Classifies stable error-code prefix; prior CI run #88 passed 63/63 tests. |
-| IAM-PR1-006 | High | The runtime resolver reads `principals`, `external_identities` and `permissions`, but the restricted CI runtime role lacked SELECT grants on these tables; unrestricted grants to global identity tables would expose cross-tenant identity data. | Migration now applies ENABLE/FORCE RLS to `principals` and `external_identities`, restricting reads to principals with an active membership in the transaction-scoped tenant. The test runtime role receives SELECT-only access to these tables and `permissions`; integration tests now seed and assert tenant-scoped identity visibility. CI validation pending. |
+| IAM-PR1-005 | Low | Invalid-token HTTP classification previously compared the entire error message, failing when a diagnostic suffix was present. | Classifies stable error-code prefix; regression coverage passed in CI. |
+| IAM-PR1-006 | High | The runtime resolver reads `principals`, `external_identities` and `permissions`; the restricted CI runtime role needed SELECT grants without exposing cross-tenant identity mappings. | Migration applies ENABLE/FORCE RLS to `principals` and `external_identities`, restricting reads to principals with an active membership in the transaction-scoped tenant. The runtime test role receives SELECT-only access to those tables and `permissions`. Integration tests exercise tenant-scoped visibility and the membership resolver under the restricted role. CI run #103 passed: https://github.com/alexoaraujo83/iam-platform/actions/runs/38313627685. |
 
 ## Remaining gates — not proven by this PR's CI
 
-1. Run CI after the identity-table RLS/grant changes and verify frozen install, typecheck, build, OIDC tests and PostgreSQL integration tests.
-2. Validate against a real configured OIDC provider and deployment PostgreSQL instance.
-3. Review RLS coverage for every future tenant-scoped table and verify runtime grants in the target environment.
-4. Implement durable audit write/read/retention and operational alerting/metrics.
-5. Implement and review administration and lifecycle workflows before production claims.
-6. Keep the PR open pending final diff/check review; do not treat a technical comment by the PR author as independent approval.
+1. Validate against a real configured OIDC provider and deployment PostgreSQL instance.
+2. Verify runtime database grants and RLS policies in the target environment, including all tenant-scoped tables.
+3. Implement durable audit write/read/retention and operational alerting/metrics.
+4. Implement and review administration and identity/membership lifecycle workflows before production claims.
+5. Review final PR diff and current required checks before any merge; keep the PR open unless merge is explicitly requested. A technical comment by the PR author is not independent approval.
 
 ## Evidence boundary
 
