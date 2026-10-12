@@ -13,7 +13,8 @@
     "@iam-platform/authorization": "workspace:*",
     "@iam-platform/database": "workspace:*",
     "@iam-platform/identity": "workspace:*",
-    "pg": "8.23.1"
+    "pg": "8.23.1",
+    "@iam-platform/contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "26.6.5",
