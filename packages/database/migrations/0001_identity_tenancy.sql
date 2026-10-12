@@ -124,6 +124,28 @@ CREATE POLICY memberships_isolation ON memberships
   USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 
+-- Global identity tables are visible only for principals with an active
+-- membership in the transaction-scoped tenant. Runtime access is read-only.
+ALTER TABLE principals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE principals FORCE ROW LEVEL SECURITY;
+CREATE POLICY principals_active_tenant_visibility ON principals
+  USING (EXISTS (
+    SELECT 1 FROM memberships m
+     WHERE m.principal_id = principals.id
+       AND m.status = 'active'
+       AND m.tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid
+  ));
+
+ALTER TABLE external_identities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE external_identities FORCE ROW LEVEL SECURITY;
+CREATE POLICY external_identities_active_tenant_visibility ON external_identities
+  USING (EXISTS (
+    SELECT 1 FROM memberships m
+     WHERE m.principal_id = external_identities.principal_id
+       AND m.status = 'active'
+       AND m.tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid
+  ));
+
 ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE roles FORCE ROW LEVEL SECURITY;
 CREATE POLICY roles_isolation ON roles
