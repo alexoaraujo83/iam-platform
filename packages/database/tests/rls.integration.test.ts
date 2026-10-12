@@ -55,6 +55,7 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
       ALTER ROLE iam_runtime LOGIN PASSWORD 'runtime-test-only' NOSUPERUSER NOBYPASSRLS;
       GRANT USAGE ON SCHEMA public TO iam_runtime;
       GRANT SELECT, INSERT, UPDATE, DELETE ON tenants, memberships, roles, role_permissions, membership_roles, applications, audit_events TO iam_runtime;
+      GRANT SELECT ON principals, external_identities, permissions TO iam_runtime;
     `);
 
     const tenantAResult = await admin.query<{ id: string }>(
@@ -70,6 +71,10 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     const principalBResult = await admin.query<{ id: string }>("INSERT INTO principals DEFAULT VALUES RETURNING id");
     principalA = principalAResult.rows[0]!.id;
     principalB = principalBResult.rows[0]!.id;
+    await admin.query(
+      "INSERT INTO external_identities (principal_id, issuer, subject) VALUES ($1, 'https://issuer.example.test', 'subject-a'), ($2, 'https://issuer.example.test', 'subject-b')",
+      [principalA, principalB]
+    );
 
     const membershipAResult = await admin.query<{ id: string }>(
       "INSERT INTO memberships (tenant_id, principal_id) VALUES ($1, $2) RETURNING id",
@@ -130,8 +135,12 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
       await client.query("BEGIN");
       const tenants = await client.query("SELECT id FROM tenants");
       const memberships = await client.query("SELECT id FROM memberships");
+      const principals = await client.query("SELECT id FROM principals");
+      const externalIdentities = await client.query("SELECT id FROM external_identities");
       expect(tenants.rowCount).toBe(0);
       expect(memberships.rowCount).toBe(0);
+      expect(principals.rowCount).toBe(0);
+      expect(externalIdentities.rowCount).toBe(0);
       await client.query("ROLLBACK");
     } finally {
       client.release();
@@ -142,16 +151,24 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     const result = await withTenant(tenantA, async (client) => {
       const tenants = await client.query<{ id: string }>("SELECT id FROM tenants");
       const memberships = await client.query<{ id: string }>("SELECT id FROM memberships");
+      const principals = await client.query<{ id: string }>("SELECT id FROM principals");
+      const externalIdentities = await client.query<{ issuer: string; subject: string }>(
+        "SELECT issuer, subject FROM external_identities ORDER BY subject"
+      );
       const roles = await client.query<{ id: string }>("SELECT id FROM roles");
       const rolePermissions = await client.query<{ role_id: string }>("SELECT role_id FROM role_permissions");
       const membershipRoles = await client.query<{ membership_id: string; role_id: string }>("SELECT membership_id, role_id FROM membership_roles");
       const applications = await client.query<{ id: string }>("SELECT id FROM applications");
       const auditEvents = await client.query<{ target_id: string | null }>("SELECT target_id FROM audit_events");
-      return { tenants: tenants.rows, memberships: memberships.rows, roles: roles.rows, rolePermissions: rolePermissions.rows, membershipRoles: membershipRoles.rows, applications: applications.rows, auditEvents: auditEvents.rows };
+      return { tenants: tenants.rows, memberships: memberships.rows, principals: principals.rows, externalIdentities: externalIdentities.rows, roles: roles.rows, rolePermissions: rolePermissions.rows, membershipRoles: membershipRoles.rows, applications: applications.rows, auditEvents: auditEvents.rows };
     });
 
     expect(result.tenants).toEqual([{ id: tenantA }]);
     expect(result.memberships).toEqual([{ id: membershipA }]);
+    expect(result.principals).toEqual([{ id: principalA }]);
+    expect(result.externalIdentities).toEqual([
+      { issuer: "https://issuer.example.test", subject: "subject-a" }
+    ]);
     expect(result.tenants.some((row) => row.id === tenantB)).toBe(false);
     expect(result.memberships.some((row) => row.id === membershipB)).toBe(false);
     expect(result.roles).toEqual([{ id: roleA }]);
