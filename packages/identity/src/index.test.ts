@@ -145,4 +145,21 @@ describe("OIDC verifier", () => {
     const verifier = createOidcVerifier({ ...config, allowedAlgorithms: ["PS256"] }, fixture.keySet);
     await expect(verifier(await fixture.token())).rejects.toThrow();
   });
+  it("fails closed when the JWKS resolver is unavailable", async () => {
+    const unavailableResolver = async () => {
+      throw new Error("jwks_unavailable");
+    };
+    const verifier = createOidcVerifier(config, unavailableResolver);
+    await expect(verifier("eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.signature"))
+      .rejects.toThrow("jwks_unavailable");
+  });
+
+  it("keeps issuer part of the external identity key", async () => {
+    const fixture = await makeFixture();
+    const verifier = createOidcVerifier(config, fixture.keySet);
+    const identity = await verifier(await fixture.token({ subject: "same-subject" }));
+    expect([identity.issuer, identity.subject]).toEqual([config.issuer, "same-subject"]);
+    // Persistence uses UNIQUE (issuer, subject), never subject alone.
+  });
+
 });
