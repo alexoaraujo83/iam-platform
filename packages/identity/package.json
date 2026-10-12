@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@iam-platform/contracts": "workspace:*",
     "jose": "^6.1.0"
   },
   "devDependencies": {
