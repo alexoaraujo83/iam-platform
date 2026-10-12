@@ -26,20 +26,18 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      # Isolate pnpm from the runner image's legacy PNPM_HOME layout.
-      PNPM_HOME: ${{ github.workspace }}/.pnpm-home
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/iam_test
       IAM_RUNTIME_DATABASE_URL: postgres://iam_runtime:runtime-test-only@localhost:5432/iam_test
       IAM_DATABASE_INTEGRATION: "1"
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 12.12.1
       - uses: actions/setup-node@v7
         with:
           node-version: 24
           package-manager-cache: false
+      # Install the pinned pnpm CLI directly to avoid the runner's legacy PNPM_HOME layout.
+      - run: npm install --global pnpm@12.12.1
+      - run: pnpm --version
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
