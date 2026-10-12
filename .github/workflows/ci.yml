@@ -30,13 +30,13 @@ jobs:
       IAM_RUNTIME_DATABASE_URL: postgres://iam_runtime:runtime-test-only@localhost:5432/iam_test
       IAM_DATABASE_INTEGRATION: "1"
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
-          version: 10.18.0
-      - uses: actions/setup-node@v5
+          version: 12.12.1
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           package-manager-cache: false
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm typecheck
