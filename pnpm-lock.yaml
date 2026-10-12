@@ -173,6 +173,31 @@ importers:
         specifier: 5.0.3
         version: 5.0.3(@types/node@26.6.5)(vite@8.3.4(@types/node@26.6.5))
 
+  apps/api:
+    dependencies:
+      '@iam-platform/authorization':
+        specifier: workspace:*
+        version: link:../../packages/authorization
+      '@iam-platform/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@iam-platform/database':
+        specifier: workspace:*
+        version: link:../../packages/database
+      '@iam-platform/identity':
+        specifier: workspace:*
+        version: link:../../packages/identity
+      pg:
+        specifier: 8.23.1
+        version: 8.23.1
+    devDependencies:
+      '@types/node':
+        specifier: 26.6.5
+        version: 26.6.5
+      vitest:
+        specifier: 5.0.3
+        version: 5.0.3(@types/node@26.6.5)(vite@8.3.4(@types/node@26.6.5))
+
   packages/authorization:
     dependencies:
       '@iam-platform/contracts':
