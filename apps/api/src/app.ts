@@ -27,7 +27,7 @@ export function createApiServer(resolveTenantContext: ResolveTenantContext): Ser
       return;
     }
 
-    const match = /^\\/v1\\/tenants\\/([^/]+)\\/context$/.exec(url.pathname);
+    const match = /^\/v1\/tenants\/([^/]+)\/context$/.exec(url.pathname);
     if (request.method !== "GET" || !match?.[1]) {
       sendJson(response, 404, { error: "not_found" });
       return;
