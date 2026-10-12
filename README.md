@@ -17,12 +17,12 @@ This repository contains shared domain contracts, an exact-match RBAC evaluator,
 
 ## Prerequisites
 
-- Node.js 22+
-- pnpm 10.18+
+- Node.js 24 (matches CI; `engines.node` requires `>=24.0.0`)
+- pnpm 12.12.1 (pinned by `packageManager` and CI)
 
 ## Commands
 
-- `pnpm install`
+- `pnpm install --frozen-lockfile` (reproducible dependency installation)
 - `pnpm typecheck`
 - `pnpm test`
 
