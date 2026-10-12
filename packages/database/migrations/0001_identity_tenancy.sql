@@ -151,13 +151,7 @@ CREATE POLICY applications_isolation ON applications
 ALTER TABLE audit_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_events FORCE ROW LEVEL SECURITY;
 CREATE POLICY audit_events_tenant_isolation ON audit_events
-  USING (
-    tenant_id IS NULL OR
-    tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid
-  )
-  WITH CHECK (
-    tenant_id IS NULL OR
-    tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid
-  );
+  USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
 
 COMMIT;
