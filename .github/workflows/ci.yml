@@ -38,6 +38,14 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+      - name: Diagnose lockfile discovery
+        run: |
+          pwd
+          ls -la
+          git ls-files -s pnpm-lock.yaml || true
+          test -f pnpm-lock.yaml && head -n 12 pnpm-lock.yaml || true
+          pnpm config get lockfile
+          pnpm config get lockfile-dir
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
