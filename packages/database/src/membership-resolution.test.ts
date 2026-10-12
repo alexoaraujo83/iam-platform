@@ -16,7 +16,7 @@ describe("resolveActiveMembership", () => {
     const { client, query } = clientWithResults([
       { rows: [] },
       { rows: [{ tenant_id: "tenant-a", principal_id: "principal-a", membership_id: "membership-a" }] },
-      { rows: [{ permission_key: "freight.read" }, { permission_key: "iam.manage" }] }
+      { rows: [{ permission_key: "freight.read" }, { permission_key: "iam:manage" }] }
     ]);
 
     const result = await resolveActiveMembership(
