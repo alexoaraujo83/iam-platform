@@ -3,7 +3,7 @@ import { appendAuditEvent } from "./audit.js";
 
 describe("appendAuditEvent", () => {
   it("inserts a bounded, redacted-by-contract JSON event and returns its durable id", async () => {
-    const query = vi.fn(async () => ({ rows: [{ id: "audit-1" }] }));
+    const query = vi.fn(async (_text: string, _values?: unknown[]) => ({ rows: [{ id: "audit-1" }] }));
     const id = await appendAuditEvent({ query } as never, {
       tenantId: "tenant-1",
       actorPrincipalId: "principal-1",
