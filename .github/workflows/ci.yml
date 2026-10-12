@@ -38,9 +38,6 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
-      - run: pnpm install --no-frozen-lockfile
-      - name: Capture generated lockfile delta
-        if: always()
-        run: git diff -- pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
