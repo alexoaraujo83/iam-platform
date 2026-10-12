@@ -1,0 +1,22 @@
+{
+  "name": "@iam-platform/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@iam-platform/authorization": "workspace:*",
+    "@iam-platform/database": "workspace:*",
+    "@iam-platform/identity": "workspace:*",
+    "pg": "8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "vitest": "5.0.3"
+  }
+}
