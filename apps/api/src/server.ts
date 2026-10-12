@@ -20,7 +20,15 @@ const oidcConfig: IdentityProviderConfig = {
     .map((algorithm) => algorithm.trim())
     .filter(Boolean)
 };
-const verifyAccessToken = createOidcVerifier(oidcConfig);
+const oidcVerifier = createOidcVerifier(oidcConfig);
+const verifyAccessToken = async (token: string) => {
+  try {
+    return await oidcVerifier(token);
+  } catch {
+    // Do not expose JWT/JWKS validation details to callers.
+    throw new Error("invalid_access_token");
+  }
+};
 const pool = new Pool({ connectionString: requiredEnv("DATABASE_URL") });
 const port = Number(process.env.PORT ?? "3000");
 
@@ -93,7 +101,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       sendJson(response, 403, { error: "permission_denied" });
       return;
     }
-    if (error instanceof Error && /^(JWT|ERR_JWT|invalid_token|token_issued_in_future|invalid_verified_identity_claims)/.test(error.message)) {
+    if (error instanceof Error && error.message === "invalid_access_token") {
       sendJson(response, 401, { error: "invalid_access_token" });
       return;
     }
