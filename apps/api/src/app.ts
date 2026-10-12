@@ -64,11 +64,12 @@ export function createApiServer(resolveTenantContext: ResolveTenantContext): Ser
         permissions: context.permissions
       });
     } catch (error) {
-      if (error instanceof Error && error.message === "authorization_denied") {
+      const errorCode = error instanceof Error ? error.message.split(":", 1)[0] : undefined;
+      if (errorCode === "authorization_denied") {
         sendJson(response, 403, { error: "permission_denied" });
         return;
       }
-      if (error instanceof Error && error.message === "invalid_access_token") {
+      if (errorCode === "invalid_access_token") {
         sendJson(response, 401, { error: "invalid_access_token" });
         return;
       }
