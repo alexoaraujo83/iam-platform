@@ -23,6 +23,7 @@ async function makeFixture() {
     audience?: string;
     subject?: string;
     expiresAt?: number;
+    issuedAt?: number;
     notBefore?: number;
     algorithm?: string;
     includeIssuedAt?: boolean;
@@ -35,7 +36,7 @@ async function makeFixture() {
     builder.setIssuer(overrides.issuer ?? config.issuer);
     builder.setAudience(overrides.audience ?? config.audience);
     builder.setSubject(overrides.subject !== undefined ? overrides.subject : "external-user-123");
-    if (overrides.includeIssuedAt !== false) builder.setIssuedAt(now);
+    if (overrides.includeIssuedAt !== false) builder.setIssuedAt(overrides.issuedAt ?? now);
     if (overrides.notBefore !== undefined) builder.setNotBefore(overrides.notBefore);
     builder.setExpirationTime(overrides.expiresAt ?? now + 120);
     return builder.sign(privateKey);
@@ -94,6 +95,14 @@ describe("OIDC verifier", () => {
     await expect(
       verifier(await fixture.token({ notBefore: fixture.now + 120, expiresAt: fixture.now + 300 }))
     ).rejects.toThrow();
+  });
+
+  it("rejects tokens issued too far in the future", async () => {
+    const fixture = await makeFixture();
+    const verifier = createOidcVerifier(config, fixture.keySet);
+    await expect(verifier(await fixture.token({ issuedAt: fixture.now + 120 }))).rejects.toThrow(
+      "token_issued_in_future"
+    );
   });
 
   it("rejects missing required issued-at claims", async () => {
