@@ -66,7 +66,7 @@ describe("OIDC verifier", () => {
     const verifier = createOidcVerifier(config, fixture.keySet);
     const signed = await fixture.token();
     const [header, payload, signature] = signed.split(".");
-    const changedPayload = payload!.slice(0, -1) + (payload!.endsWith("A") ? "B" : "A");
+    const changedPayload = (payload!.startsWith("A") ? "B" : "A") + payload!.slice(1);
     await expect(verifier(`${header}.${changedPayload}.${signature}`)).rejects.toThrow();
   });
 
