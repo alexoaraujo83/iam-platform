@@ -1,6 +1,6 @@
 # Database package
 
-This directory contains versioned PostgreSQL migrations and tenant-isolation integration tests for the IAM platform.
+This directory contains versioned PostgreSQL migrations, tenant-isolation integration tests, and the database-side authenticated-tenant transaction boundary for the IAM platform.
 
 ## Migration 0001
 
@@ -10,9 +10,21 @@ Tenant-owned tables use ENABLE ROW LEVEL SECURITY and FORCE ROW LEVEL SECURITY. 
 
 ## Identity-to-membership resolution
 
-`src/membership-resolution.ts` maps a cryptographically verified `(issuer, subject)` pair to an active local principal, tenant and membership, then loads permissions from active membership-role grants. The requested tenant ID is only an RLS scope selector; it never proves membership. The resolver fails closed when the principal, tenant or membership is inactive/missing and rejects malformed permission keys. Call it only on a checked-out PostgreSQL client inside an explicit transaction; commit or roll back before releasing the client so `app.tenant_id` remains transaction-local. The issuer and subject must come from the OIDC verifier output, never directly from an unverified JWT.
+`src/membership-resolution.ts` maps a cryptographically verified `(issuer, subject)` pair to an active local principal, tenant and membership, then loads permissions from active membership-role grants. The requested tenant ID is only an RLS scope selector; it never proves access. The resolver fails closed when the principal, tenant or membership is inactive/missing and rejects malformed permission keys.
 
-The unit tests cover successful resolution, missing membership, invalid input and malformed permission keys. They do not replace an end-to-end integration test against PostgreSQL.
+## Authenticated tenant transaction
+
+`src/authenticated-tenant.ts` composes token verification, membership resolution, and protected database work:
+
+1. Verify the access token before acquiring a database connection.
+2. Start an explicit PostgreSQL transaction.
+3. Resolve the active membership and DB-derived permissions, setting `app.tenant_id` transaction-locally.
+4. Invoke the protected-operation callback on the same client/transaction.
+5. Commit on success; roll back on missing membership or errors; always release the client.
+
+Pass a verifier created from trusted server-side OIDC configuration (for example `createOidcVerifier`). Never pass decoded, unverified JWT claims. The callback must call the deny-by-default authorization evaluator for the operation's required permission before doing protected work. Keep all tenant-scoped queries inside that callback; a transaction-local RLS setting does not survive commit.
+
+The unit tests cover membership resolution and transaction lifecycle, including verification failure before DB acquisition, missing membership, rollback, and client release. These tests do not replace end-to-end validation with a real OIDC provider and PostgreSQL.
 
 ## Automated integration evidence
 
