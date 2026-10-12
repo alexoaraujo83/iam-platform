@@ -23,6 +23,7 @@ async function makeFixture() {
     audience?: string;
     subject?: string;
     expiresAt?: number;
+    notBefore?: number;
     algorithm?: string;
     includeIssuedAt?: boolean;
   } = {}) {
@@ -31,14 +32,11 @@ async function makeFixture() {
       kid: "test-key"
     });
 
-    if (overrides.issuer !== undefined) builder.setIssuer(overrides.issuer);
-    else builder.setIssuer(config.issuer);
-
-    if (overrides.audience !== undefined) builder.setAudience(overrides.audience);
-    else builder.setAudience(config.audience);
-
-    builder.setSubject(overrides.subject ?? "external-user-123");
+    builder.setIssuer(overrides.issuer ?? config.issuer);
+    builder.setAudience(overrides.audience ?? config.audience);
+    builder.setSubject(overrides.subject !== undefined ? overrides.subject : "external-user-123");
     if (overrides.includeIssuedAt !== false) builder.setIssuedAt(now);
+    if (overrides.notBefore !== undefined) builder.setNotBefore(overrides.notBefore);
     builder.setExpirationTime(overrides.expiresAt ?? now + 120);
     return builder.sign(privateKey);
   }
@@ -63,6 +61,14 @@ describe("OIDC verifier", () => {
     expect(identity).not.toHaveProperty("roles");
   });
 
+  it("rejects a token with a tampered signature", async () => {
+    const fixture = await makeFixture();
+    const verifier = createOidcVerifier(config, fixture.keySet);
+    const signed = await fixture.token();
+    const tampered = signed.slice(0, -1) + (signed.endsWith("A") ? "B" : "A");
+    await expect(verifier(tampered)).rejects.toThrow();
+  });
+
   it("rejects a token with the wrong issuer", async () => {
     const fixture = await makeFixture();
     const verifier = createOidcVerifier(config, fixture.keySet);
@@ -81,10 +87,24 @@ describe("OIDC verifier", () => {
     await expect(verifier(await fixture.token({ expiresAt: fixture.now - 10 }))).rejects.toThrow();
   });
 
+  it("rejects tokens before their not-before time", async () => {
+    const fixture = await makeFixture();
+    const verifier = createOidcVerifier(config, fixture.keySet);
+    await expect(
+      verifier(await fixture.token({ notBefore: fixture.now + 120, expiresAt: fixture.now + 300 }))
+    ).rejects.toThrow();
+  });
+
   it("rejects missing required issued-at claims", async () => {
     const fixture = await makeFixture();
     const verifier = createOidcVerifier(config, fixture.keySet);
     await expect(verifier(await fixture.token({ includeIssuedAt: false }))).rejects.toThrow();
+  });
+
+  it("rejects an empty subject after token verification", async () => {
+    const fixture = await makeFixture();
+    const verifier = createOidcVerifier(config, fixture.keySet);
+    await expect(verifier(await fixture.token({ subject: "" }))).rejects.toThrow("invalid_verified_identity_claims");
   });
 
   it("rejects empty tokens before verification", async () => {
