@@ -13,7 +13,7 @@ A provider-independent Identity and Access Management foundation for multi-tenan
 
 ## Current scope
 
-This repository contains shared domain contracts, an exact-match RBAC evaluator, an OIDC/JWT verifier package, a PostgreSQL schema migration and RLS tests, database-backed membership resolution, and a helper that keeps authenticated tenant work inside the same RLS-scoped transaction. The helper requires an explicit authorization evaluator and does not invoke protected work unless the required permission is allowed. There is not yet a deployed API or admin UI, and no production database or target identity provider has been validated. Durable audit operations and production operations remain pending.
+This repository contains shared domain contracts, an exact-match RBAC evaluator, an OIDC/JWT verifier package, a PostgreSQL schema migration and RLS tests, database-backed membership resolution, and a helper that keeps authenticated tenant work inside the same RLS-scoped transaction. The helper requires an explicit authorization evaluator and does not invoke protected work unless the required permission is allowed. An initial HTTP API now exists in `apps/api` with a health endpoint and a tenant-context route. It has HTTP-level tests, but is not yet deployed and has not been validated against a production database or target identity provider. An admin UI, durable audit operations and production operations remain pending.
 
 ## Prerequisites
 
@@ -32,6 +32,7 @@ This repository contains shared domain contracts, an exact-match RBAC evaluator,
 - `packages/identity`: OIDC JWT verification against a configured trusted issuer/JWKS
 - `packages/authorization`: deny-by-default exact permission evaluator
 - `packages/database`: PostgreSQL schema, RLS tests, membership resolver and authenticated-tenant transaction helper
+- `apps/api`: HTTP API, OIDC-backed tenant-context endpoint and HTTP denial-path tests
 - `docs/architecture`: architecture boundaries and tenancy invariants
 - `docs/security`: initial threat model and required security gates
 
@@ -40,6 +41,10 @@ This repository contains shared domain contracts, an exact-match RBAC evaluator,
 The verifier validates the cryptographic signature, configured issuer and audience, expiration, required subject/issued-at claims, and a fixed allowlist of asymmetric algorithms. Issuer and JWKS endpoints must use HTTPS. The JWKS URL is trusted server-side configuration and must never be derived from request input or unverified token data. The verifier returns normalized issuer/subject identity data only; it does not infer tenant membership, roles or permissions.
 
 Unit tests use generated signing keys and a local JWKS resolver. Production issuer discovery, remote JWKS behavior against each target provider, database-backed principal mapping and end-to-end API authentication still require integration validation.
+
+## HTTP API
+
+`apps/api` exposes `GET /health` and `GET /v1/tenants/:tenantId/context`. The latter requires a Bearer access token, verifies it against the server-configured OIDC issuer/audience/JWKS, resolves active membership and the `iam.context.read` permission in the same RLS-scoped database transaction, and returns only the normalized tenant context. Missing credentials return `401`; invalid tokens return `401`; missing membership or denied permissions return `403`; unexpected failures return a sanitized `500`. Configure `DATABASE_URL`, `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URI`, and optionally `OIDC_ALLOWED_ALGORITHMS` (defaults to `RS256`). `PORT` defaults to `3000`. Copy `.env.example` for local configuration and never commit real credentials. HTTP tests exercise health, malformed credentials, membership/permission denial, invalid tokens, sanitized errors and unknown routes; they do not replace end-to-end OIDC/PostgreSQL integration tests.
 
 ## Authenticated tenant transaction
 
