@@ -31,6 +31,12 @@ jobs:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/iam_test
       IAM_RUNTIME_DATABASE_URL: postgres://iam_runtime:runtime-test-only@localhost:5432/iam_test
       IAM_DATABASE_INTEGRATION: "1"
+      # Disposable values let Next.js build/import the SDK in CI; never use them in deployments.
+      AUTH0_DOMAIN: example.us.auth0.com
+      AUTH0_CLIENT_ID: ci-only-client-id
+      AUTH0_CLIENT_SECRET: ci-only-client-secret
+      AUTH0_SECRET: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      APP_BASE_URL: http://localhost:3000
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
