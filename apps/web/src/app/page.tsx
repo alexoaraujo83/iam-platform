@@ -1,7 +1,10 @@
+import { connection } from "next/server";
 import { auth0 } from "../lib/auth0";
 import styles from "./page.module.css";
 
 export default async function Home() {
+  // Session cookies are request-specific; opt out of prerendering in Next.js 16.
+  await connection();
   const session = await auth0.getSession();
 
   return (
