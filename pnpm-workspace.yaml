@@ -4,3 +4,11 @@ packages:
 
 allowBuilds:
   unrs-resolver: true
+
+permissions:
+  '@auth0/nextjs-auth0':
+    skills: true
+
+skills:
+  dirs:
+    - .agents/skills
