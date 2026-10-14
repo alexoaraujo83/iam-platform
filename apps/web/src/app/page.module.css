@@ -1,150 +1,115 @@
 .page {
-  --background: #fafafa;
-  --foreground: #fff;
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 48px 24px;
+  color: #172033;
+  background: radial-gradient(circle at top right, #e9e8ff 0, transparent 36%), #f6f7fb;
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+}
 
-  --text-primary: #000;
-  --text-secondary: #666;
+.panel {
+  width: min(100%, 680px);
+  padding: clamp(28px, 6vw, 56px);
+  border: 1px solid #e4e7f0;
+  border-radius: 24px;
+  background: rgb(255 255 255 / 94%);
+  box-shadow: 0 24px 80px rgb(26 37 70 / 9%);
+}
 
-  --button-primary-hover: #383838;
-  --button-secondary-hover: #f2f2f2;
-  --button-secondary-border: #ebebeb;
+.eyebrow {
+  margin-bottom: 16px;
+  color: #5a50c8;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.16em;
+}
 
+.panel h1 {
+  font-size: clamp(36px, 7vw, 56px);
+  line-height: 1.05;
+  letter-spacing: -0.045em;
+}
+
+.description {
+  max-width: 480px;
+  margin-top: 18px;
+  color: #586174;
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+.actions,
+.session {
   display: flex;
-  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 32px;
+}
+
+.session {
+  align-items: flex-start;
   flex-direction: column;
+  gap: 14px;
+}
+
+.session h2 {
+  font-size: 20px;
+}
+
+.session p {
+  line-height: 1.6;
+}
+
+.note,
+.footer {
+  color: #687185;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.button,
+.secondary {
+  display: inline-flex;
+  min-height: 44px;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-geist-sans);
-  background-color: var(--background);
-}
-
-.main {
-  display: flex;
-  flex: 1;
-  width: 100%;
-  max-width: 800px;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: space-between;
-  background-color: var(--foreground);
-  padding: 120px 60px;
-}
-
-.intro {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  text-align: left;
-  gap: 24px;
-}
-
-.intro h1 {
-  max-width: 320px;
-  font-size: 40px;
-  font-weight: 600;
-  line-height: 48px;
-  letter-spacing: -2.4px;
-  text-wrap: balance;
-  color: var(--text-primary);
-}
-
-.intro p {
-  max-width: 440px;
-  font-size: 18px;
-  line-height: 32px;
-  text-wrap: balance;
-  color: var(--text-secondary);
-}
-
-.intro a {
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.ctas {
-  display: flex;
-  flex-direction: row;
-  width: 100%;
-  max-width: 440px;
-  gap: 16px;
+  padding: 0 18px;
+  border: 1px solid #5146c7;
+  border-radius: 10px;
   font-size: 14px;
+  font-weight: 650;
+  text-decoration: none;
+  transition: background-color 160ms ease, border-color 160ms ease;
 }
 
-.ctas a {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 40px;
-  padding: 0 16px;
-  border-radius: 128px;
-  border: 1px solid transparent;
-  transition: 0.2s;
-  cursor: pointer;
-  width: fit-content;
-  font-weight: 500;
+.button {
+  color: #fff;
+  background: #5146c7;
 }
 
-a.primary {
-  background: var(--text-primary);
-  color: var(--background);
-  gap: 8px;
+.button:hover {
+  border-color: #4035ad;
+  background: #4035ad;
 }
 
-a.secondary {
-  border-color: var(--button-secondary-border);
+.secondary {
+  color: #3f379a;
+  background: #fff;
 }
 
-/* Enable hover only on non-touch devices */
-@media (hover: hover) and (pointer: fine) {
-  a.primary:hover {
-    background: var(--button-primary-hover);
-    border-color: transparent;
-  }
-
-  a.secondary:hover {
-    background: var(--button-secondary-hover);
-    border-color: transparent;
-  }
+.secondary:hover {
+  background: #f0efff;
 }
 
-@media (max-width: 600px) {
-  .main {
-    padding: 48px 24px;
-  }
-
-  .intro {
-    gap: 16px;
-  }
-
-  .intro h1 {
-    font-size: 32px;
-    line-height: 40px;
-    letter-spacing: -1.92px;
-  }
+.footer {
+  margin-top: 36px;
 }
 
-@media (prefers-color-scheme: dark) {
-  .logo {
-    filter: invert();
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .secondary {
+    transition: none;
   }
-
-  .page {
-    --background: #000;
-    --foreground: #000;
-
-    --text-primary: #ededed;
-    --text-secondary: #999;
-
-    --button-primary-hover: #ccc;
-    --button-secondary-hover: #1a1a1a;
-    --button-secondary-border: #1a1a1a;
-  }
-}
-
-.code {
-  font-family: var(--font-geist-mono);
-  font-size: 0.9em;
-  background: color-mix(in srgb, currentColor 8%, transparent);
-  padding: 0.1em 0.4em;
-  border-radius: 6px;
 }
