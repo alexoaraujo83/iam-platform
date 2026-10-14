@@ -2238,7 +2238,8 @@ packages:
     resolution: {integrity: sha512-65P7iz6X5yEr1cwcgvQxbbIw7Uk3gOy5dIdtZ4rDveLqhrdJP+Li/Hx6tyK0NEb+2GCyneCMJiGqrADCSNk8sQ==}
     engines: {node: '>=8.0'}
 
-  ts-api-utils@2.5.0:    resolution: {integrity: sha512-OJ/ibxhPlqrMM0UiNHJ/0CKQkoKF243/AEmplt3qpRgkW8VG7IfOS41h7V8TjITqdByHzrjcS/2si+y4lIh8NA==}
+  ts-api-utils@2.5.0:
+    resolution: {integrity: sha512-OJ/ibxhPlqrMM0UiNHJ/0CKQkoKF243/AEmplt3qpRgkW8VG7IfOS41h7V8TjITqdByHzrjcS/2si+y4lIh8NA==}
     engines: {node: '>=18.12'}
     peerDependencies:
       typescript: '>=4.8.4'
@@ -3037,7 +3038,8 @@ snapshots:
   '@typescript/typescript-linux-arm64@7.0.2':
     optional: true
 
-  '@typescript/typescript-linux-arm@7.0.2':    optional: true
+  '@typescript/typescript-linux-arm@7.0.2':
+    optional: true
 
   '@typescript/typescript-linux-loong64@7.0.2':
     optional: true
@@ -3836,7 +3838,8 @@ snapshots:
   globals@16.4.0: {}
 
   globalthis@1.0.4:
-    dependencies:      define-properties: 1.2.1
+    dependencies:
+      define-properties: 1.2.1
       gopd: 1.2.0
 
   gopd@1.2.0: {}
