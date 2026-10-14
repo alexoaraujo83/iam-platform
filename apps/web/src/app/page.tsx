@@ -1,69 +1,38 @@
-import Image from "next/image";
+import { auth0 } from "../lib/auth0";
 import styles from "./page.module.css";
 
-export default function Home() {
+export default async function Home() {
+  const session = await auth0.getSession();
+
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className={styles.intro}>
-          <h1>
-            To get started, edit the{" "}
-            <code className={styles.code}>page.tsx</code> file.
-          </h1>
-          <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+    <main className={styles.page}>
+      <section className={styles.panel} aria-labelledby="page-title">
+        <p className={styles.eyebrow}>IDENTITY & ACCESS MANAGEMENT</p>
+        <h1 id="page-title">IAM Platform</h1>
+        <p className={styles.description}>
+          Centralize identity, organization membership, and access policy management.
+        </p>
+
+        {session ? (
+          <div className={styles.session}>
+            <h2>Authenticated session</h2>
+            <p>
+              Signed in as <strong>{session.user.name ?? session.user.email ?? "authenticated user"}</strong>.
+            </p>
+            <p className={styles.note}>
+              Authentication is provided by Auth0. Authorization and tenant membership must still be
+              evaluated by the IAM API.
+            </p>
+            <a className={styles.button} href="/auth/logout">Sign out</a>
+          </div>
+        ) : (
+          <div className={styles.actions}>
+            <a className={styles.button} href="/auth/login">Sign in with Auth0</a>
+            <a className={styles.secondary} href="/auth/login?screen_hint=signup">Create account</a>
+          </div>
+        )}
+        <p className={styles.footer}>Provider setup requires valid server-side environment variables.</p>
+      </section>
+    </main>
   );
 }
