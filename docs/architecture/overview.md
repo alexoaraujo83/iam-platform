@@ -1,31 +1,31 @@
-# Architecture overview
+# Visão geral da arquitetura
 
-## MVP boundaries
+## Limites do MVP
 
-- Identity adapters verify external credentials and normalize authenticated subjects into internal principals.
-- Domain identity stores internal principals, tenants, memberships and application registrations.
-- Authorization evaluates explicit permissions against validated tenant context; deny by default.
-- Policy evolution starts with exact-match RBAC. ABAC and policy versioning are separate, testable extensions.
-- Audit records security-relevant decisions and administrative mutations with correlation IDs.
-- Admin API/UI consume the same domain services and authorization policies.
+- Adaptadores de identidade verificam credenciais externas e normalizam sujeitos autenticados em identidades internas (*principals*).
+- O domínio de identidade armazena identidades internas, tenants, associações e registros de aplicações.
+- A autorização avalia permissões explícitas com base em contexto de tenant validado; por padrão, nega.
+- A evolução das políticas começa com RBAC de correspondência exata. ABAC e versionamento de políticas são extensões separadas e testáveis.
+- A auditoria registra decisões relevantes para segurança e alterações administrativas com IDs de correlação.
+- A API/interface administrativa consome os mesmos serviços de domínio e políticas de autorização.
 
-## Provider independence
+## Independência de provedor
 
-The domain layer must not import an Auth0, Keycloak, Cognito or other provider SDK. An OIDC adapter is responsible for issuer/audience validation, signature verification, expiry and not-before checks, fixed algorithm allowlists, and trusted JWKS configuration. The adapter maps (issuer, subject) to an internal principal. Provider claims are not authorization truth.
+A camada de domínio não deve importar SDK do Auth0, Keycloak, Cognito ou de qualquer outro provedor. Um adaptador OIDC é responsável por validar emissor/audiência, assinatura, expiração e validade temporal, lista fixa de algoritmos e configuração confiável de JWKS. O adaptador mapeia o par (emissor, sujeito) para uma identidade interna. As declarações do provedor não são a fonte de verdade para autorização.
 
-## Tenant isolation invariants
+## Invariantes de isolamento entre tenants
 
-1. A tenant identifier in a token is a selector, not proof of membership.
-2. Resolve an active membership in the database for the authenticated principal and requested tenant.
-3. Build tenant context server-side; never accept a caller-supplied role as authoritative.
-4. Apply tenant scoping to every data-access path; use PostgreSQL RLS as defense in depth.
-5. Runtime database roles must not be superusers or have BYPASSRLS.
-6. Missing identity, tenant, membership or policy context results in denial.
+1. O identificador de tenant no token é um seletor, não uma prova de associação.
+2. Resolver no banco uma associação ativa entre a identidade autenticada e o tenant solicitado.
+3. Construir o contexto do tenant no servidor; nunca aceitar como autoridade uma função enviada pelo cliente.
+4. Aplicar escopo de tenant a todos os caminhos de acesso a dados; usar PostgreSQL RLS como defesa adicional.
+5. As funções de banco usadas em runtime não podem ser superusuárias nem ter `BYPASSRLS`.
+6. Ausência de identidade, tenant, associação ou contexto de política resulta em negação.
 
-## Proposed module boundaries
+## Limites de módulos propostos
 
 contracts, identity, tenancy, authorization, applications, audit, api, admin-web, worker, sdk-typescript.
 
-## Out of scope for first slice
+## Fora do escopo da primeira entrega
 
-SAML, SCIM, complex policy language, automatic role inheritance, cross-tenant administrators, billing, and production compliance claims. Add these only with threat models and regression tests.
+SAML, SCIM, linguagem complexa de políticas, herança automática de funções, administradores entre tenants, faturamento e declarações de conformidade de produção. Inclua esses recursos somente com modelos de ameaças e testes de regressão.
