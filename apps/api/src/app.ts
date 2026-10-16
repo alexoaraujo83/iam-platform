@@ -47,7 +47,7 @@ export function createApiHandler(
       return;
     }
 
-    const match = /^\\/v1\\/tenants\\/([^/]+)\\/context$/.exec(routePath);
+    const match = /^\/v1\/tenants\/([^/]+)\/context$/.exec(routePath);
     if (request.method !== "GET" || !match?.[1]) {
       sendJson(response, 404, { error: "not_found" });
       return;
