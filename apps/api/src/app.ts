@@ -23,12 +23,13 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
 export function createApiHandler(resolveTenantContext: ResolveTenantContext): ApiRequestHandler {
   async function routeRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? "/", "http://localhost");
-    if (request.method === "GET" && url.pathname === "/health") {
+    const routePath = url.pathname === "/api/index" ? (url.searchParams.get("path") ?? "/") : url.pathname;
+    if (request.method === "GET" && routePath === "/health") {
       sendJson(response, 200, { status: "ok" });
       return;
     }
 
-    const match = /^\/v1\/tenants\/([^/]+)\/context$/.exec(url.pathname);
+    const match = /^\/v1\/tenants\/([^/]+)\/context$/.exec(routePath);
     if (request.method !== "GET" || !match?.[1]) {
       sendJson(response, 404, { error: "not_found" });
       return;
