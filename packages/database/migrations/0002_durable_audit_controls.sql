@@ -6,9 +6,23 @@ ALTER TABLE audit_events
   ADD COLUMN IF NOT EXISTS request_id text,
   ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{}'::jsonb;
 
-ALTER TABLE audit_events
-  ADD CONSTRAINT audit_events_metadata_object
-  CHECK (jsonb_typeof(metadata) = 'object');
+-- 0001 may already have installed an equivalent metadata-object check under
+-- another name. Avoid creating a duplicate constraint on existing databases.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'public.audit_events'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) LIKE '%jsonb_typeof(metadata)%object%'
+  ) THEN
+    ALTER TABLE audit_events
+      ADD CONSTRAINT audit_events_metadata_object
+      CHECK (jsonb_typeof(metadata) = 'object');
+  END IF;
+END
+$$;
 
 CREATE OR REPLACE FUNCTION reject_audit_event_mutation()
 RETURNS trigger
@@ -26,12 +40,21 @@ CREATE TRIGGER audit_events_append_only
 
 REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON audit_events FROM PUBLIC;
 DO $$
+DECLARE
+  runtime_role text;
 BEGIN
-  -- The migration may run before the dedicated runtime role is provisioned.
-  -- If present, remove mutation privileges without making role creation a prerequisite.
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'iam_runtime') THEN
-    EXECUTE 'REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON audit_events FROM iam_runtime';
-  END IF;
+  -- The migration may run before either runtime role is provisioned.
+  -- Revoke mutation privileges from both the legacy and intended app roles
+  -- when present, without making role creation a prerequisite.
+  FOREACH runtime_role IN ARRAY ARRAY['iam_runtime', 'iam_app_runtime']
+  LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = runtime_role) THEN
+      EXECUTE format(
+        'REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON audit_events FROM %I',
+        runtime_role
+      );
+    END IF;
+  END LOOP;
 END
 $$;
 
