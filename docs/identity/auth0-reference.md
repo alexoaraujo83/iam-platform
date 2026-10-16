@@ -1,83 +1,83 @@
-# Auth0 reference provider (OIDC)
+# Provedor de referência Auth0 (OIDC)
 
-Status: reference-provider setup specification for IAM Platform. The provider adapter and CI contract remain vendor-independent. This document is not evidence that an Auth0 tenant has already been created or configured.
+Status: especificação de configuração do provedor de referência para IAM Platform. O adaptador e o contrato de CI continuam independentes de fornecedor. Este documento não comprova que um tenant Auth0 já tenha sido criado ou configurado.
 
-## Decision and free-plan boundary (verified 2026-10-12)
+## Decisão e limites do plano gratuito (verificado em 2026-10-12)
 
-Use a **dedicated Auth0 tenant for IAM Platform**, separate from the TMS tenant, so application registrations, callbacks, test users, Organizations, Actions, and secrets do not couple the projects.
+Usar um **tenant Auth0 dedicado ao IAM Platform**, separado do tenant do TMS, para que registros de aplicações, callbacks, usuários de teste, Organizations, Actions e segredos não acoplem os projetos.
 
-Auth0 Free currently lists OIDC-capable applications/APIs, up to 25,000 monthly active users, and up to **5 Organizations**. However, the current public pricing page does **not** include Pro/Enterprise MFA factors in Free; the MFA factors listed for paid plans must not be treated as usable after a trial expires. Therefore:
+O plano gratuito do Auth0 lista aplicações/APIs compatíveis com OIDC, até 25.000 usuários ativos mensais e até **5 Organizations**. Contudo, a página pública de preços não inclui os fatores de MFA de Pro/Enterprise no plano gratuito; fatores listados para planos pagos não devem ser considerados disponíveis após o fim de um período de avaliação. Portanto:
 
-- Free plan is acceptable for OIDC login/token validation and a reference Organization flow (within the 5-Organization limit).
-- Do not claim or require Auth0-enforced MFA in Free. If MFA is a release requirement, either use a plan that explicitly includes the required factor or implement and independently verify a separate MFA capability; do not simulate MFA by trusting a client claim.
-- Free-plan Organizations are a routing/onboarding feature only. IAM Platform remains authoritative for tenant membership, RBAC/ABAC, policy evaluation, and audit.
-- Avoid custom-domain verification if it asks for a credit card; use the default Auth0 domain.
-- Recheck the live dashboard and official pricing before relying on any quota or feature. A trial showing a toggle is not proof that it remains entitled on Free.
+- O plano gratuito é aceitável para login/validação de tokens OIDC e um fluxo de referência de Organization, dentro do limite de cinco.
+- Não afirmar nem exigir MFA aplicado pelo Auth0 no plano gratuito. Se MFA for requisito de release, usar um plano que inclua explicitamente o fator necessário ou implementar e verificar independentemente outro recurso de MFA. Não simular MFA confiando em uma declaração do cliente.
+- Organizations no plano gratuito servem apenas para roteamento/integração inicial. O IAM Platform continua sendo a autoridade para associação ao tenant, RBAC/ABAC, avaliação de políticas e auditoria.
+- Evitar validar domínio personalizado se isso exigir cartão de crédito; usar o domínio padrão do Auth0.
+- Conferir o painel e os preços oficiais antes de depender de cotas ou recursos. Um controle visível durante a avaliação não prova que o recurso continuará disponível no plano gratuito.
 
-## Create the reference configuration
+## Criar a configuração de referência
 
-Create a **new tenant** in the Auth0 Dashboard with a unique available name for IAM Platform. Do not reuse the TMS tenant and do not put credentials in GitHub source. Use the tenant's actual region/domain as displayed by Auth0; do not assume a domain based on this document.
+Criar um **tenant novo** no painel Auth0 com nome exclusivo disponível para IAM Platform. Não reutilizar o tenant do TMS nem colocar credenciais no GitHub. Usar a região/domínio reais exibidos pelo Auth0; não presumir o domínio com base neste documento.
 
-1. Record the tenant domain and exact issuer (https://<tenant-domain>/) in the private deployment configuration.
-2. Create an API/resource server named "IAM Platform API". Set its identifier to a stable, environment-specific audience (for example, https://iam-platform-api-dev for development). Use that exact identifier as OIDC_AUDIENCE.
-3. Create a Regular Web Application for the IAM Platform web client. Start with local development URLs only when developing locally; add the actual deployed callback, logout, and web-origin URLs only after the deployment URLs are known. Never use wildcard callback URLs or wildcard origins.
-4. Keep the web client and API resource server distinct. Configure the API to issue JWT access tokens for the API audience; the API validates the access token, not an ID token.
-5. Use Universal Login and an allowed database/passkey/social connection as appropriate. Do not add secrets to a public SPA. Keep any confidential client secret in the server's secret manager only.
-6. For the Free-plan smoke test, create one test Organization (within the five-Organization cap) and a test user. Treat the org_id as context for routing only; link the verified (iss, sub) identity to an internal organization membership through an auditable IAM flow.
-7. Keep the Management API and tenant administration credentials out of normal runtime configuration. CI must not depend on a broad Management API client unless a separate, least-privilege automation setup is deliberately approved.
+1. Registrar o domínio e o emissor exato (`https://<dominio-do-tenant>/`) na configuração privada da implantação.
+2. Criar uma API/servidor de recursos chamado “IAM Platform API”. Definir um identificador de audiência estável e específico do ambiente (por exemplo, `https://iam-platform-api-dev` no desenvolvimento). Usar exatamente esse identificador em `OIDC_AUDIENCE`.
+3. Criar uma aplicação Regular Web Application para o cliente web. Começar apenas com URLs locais durante o desenvolvimento; adicionar callbacks, logout e origens reais somente quando as URLs implantadas forem conhecidas. Nunca usar curingas em callbacks ou origens.
+4. Manter o cliente web e o servidor de recursos da API separados. Configurar a API para emitir tokens de acesso JWT para sua audiência; a API valida o token de acesso, não um ID token.
+5. Usar Universal Login e uma conexão de banco/passkey/social permitida conforme apropriado. Não incluir segredos em SPA pública. Guardar qualquer segredo de cliente confidencial somente no gerenciador de segredos do servidor.
+6. Para o teste básico no plano gratuito, criar uma Organization de teste (dentro do limite de cinco) e um usuário de teste. Tratar `org_id` somente como contexto de roteamento; vincular a identidade verificada (iss, sub) a uma associação interna por meio de fluxo IAM auditável.
+7. Manter credenciais de administração do tenant e da Management API fora da configuração normal de runtime. O CI não deve depender de um cliente amplo da Management API, salvo se uma automação separada, com privilégio mínimo, for aprovada deliberadamente.
 
-## Runtime configuration
+## Configuração de runtime
 
-Use deployment secrets/configuration, never request parameters or unverified token claims:
+Usar segredos/configuração de implantação confiáveis, nunca parâmetros da requisição ou declarações de token não verificadas:
 
 ~~~dotenv
-OIDC_ISSUER=https://<actual-tenant-domain>/
-OIDC_AUDIENCE=<exact-API-identifier-for-this-environment>
-OIDC_JWKS_URI=https://<actual-tenant-domain>/.well-known/jwks.json
+OIDC_ISSUER=https://<dominio-real-do-tenant>/
+OIDC_AUDIENCE=<identificador-exato-da-api-neste-ambiente>
+OIDC_JWKS_URI=https://<dominio-real-do-tenant>/.well-known/jwks.json
 OIDC_ALLOWED_ALGORITHMS=RS256
 ~~~
 
-The angle-bracket values are placeholders and must be replaced with the actual dashboard values. Development, staging, and production must use explicit environment-specific configuration. Never put client secrets, Management API tokens, signing material, or real tokens in this file or in source control.
+Os valores entre sinais angulares são marcadores e devem ser substituídos pelos valores reais do painel. Desenvolvimento, homologação e produção devem ter configuração explícita por ambiente. Nunca colocar segredos de cliente, tokens da Management API, material de assinatura ou tokens reais neste arquivo ou no controle de versão.
 
-## Verification contract
+## Contrato de verificação
 
-The provider adapter must validate the signature against the configured JWKS, exact issuer, expected API audience, expiry, required claims, and a fixed allowlist of asymmetric algorithms. It must fail closed on malformed/expired tokens, issuer/audience mismatch, unavailable JWKS, and invalid configuration. JWKS caching/rotation and remote failure behavior need provider integration tests; unit tests must use generated local keys and must not require an Auth0 account or network.
+O adaptador deve validar assinatura usando o JWKS configurado, emissor exato, audiência esperada da API, expiração, declarações obrigatórias e lista fixa de algoritmos assimétricos. Deve falhar de forma segura diante de tokens malformados/expirados, divergência de emissor/audiência, JWKS indisponível ou configuração inválida. Cache/rotação de JWKS e falhas remotas precisam de testes de integração do provedor; testes unitários devem usar chaves locais geradas e não exigir conta Auth0 nem rede.
 
-After token verification, map (iss, sub) to an internal principal and resolve active membership and permissions from PostgreSQL inside the transaction that sets the tenant-local RLS context. Never accept tenant membership or permission decisions solely from token claims. Never use email as the stable identity key.
+Após validar o token, mapear (iss, sub) para uma identidade interna e resolver associação ativa e permissões no PostgreSQL dentro da transação que define o contexto RLS local do tenant. Nunca aceitar associação ou permissões apenas com base nas declarações do token. Nunca usar e-mail como chave estável de identidade.
 
-## MFA, Organizations, and access policies
+## MFA, Organizations e políticas de acesso
 
-- The Free plan is not a valid basis for an Auth0-enforced MFA requirement according to the current public plan comparison. Any trial-only behavior must be considered unavailable after the tenant moves to Free.
-- Until an MFA mechanism with verifiable assurance evidence is configured and tested, sensitive operations requiring MFA must be denied or explicitly remain out of scope; do not claim MFA protection.
-- Keep policy decisions enforceable by IAM Platform even if Auth0 MFA, Organizations, RBAC, or Actions are unavailable.
-- Do not assume a generic OIDC access token proves MFA occurred. When a supported MFA flow is later enabled, define server-side step-up requirements and test missing/insufficient assurance as a denial.
-- Organization login context is an input to identity routing, not the canonical tenant database. Link a verified external identity to a tenant through an explicit, auditable membership flow.
-- Do not rely on Auth0 organization-scoped RBAC, advanced attack protection, audit-log streaming, or other paid-plan features unless entitlement and cost are confirmed.
+- Segundo a comparação pública atual, o plano gratuito não é base válida para exigir MFA aplicado pelo Auth0. Comportamentos disponíveis apenas durante a avaliação devem ser considerados indisponíveis após a migração para o plano gratuito.
+- Até que um mecanismo MFA com evidência verificável de garantia esteja configurado e testado, operações sensíveis que exijam MFA devem ser negadas ou permanecer explicitamente fora do escopo; não alegar proteção por MFA.
+- Manter decisões de política aplicáveis pelo IAM Platform mesmo se MFA, Organizations, RBAC ou Actions do Auth0 não estiverem disponíveis.
+- Não presumir que um token de acesso OIDC genérico prova que houve MFA. Quando um fluxo MFA compatível for habilitado, definir requisitos de elevação de autenticação no servidor e testar que garantia ausente/insuficiente resulta em negação.
+- O contexto de login de Organization é entrada para roteamento de identidade, não o banco canônico de tenants. Vincular identidade externa verificada a um tenant por fluxo de associação explícito e auditável.
+- Não depender de RBAC por organização, proteção avançada contra ataques, transmissão de logs de auditoria ou outros recursos pagos sem confirmar disponibilidade e custo.
 
-## Provider-independent test matrix
+## Matriz de testes independente de provedor
 
-The normal CI suite must not call Auth0 or require provider credentials. It should cover signature tampering, invalid issuer/audience, expiration, missing claims, unsupported algorithms, empty subject, unknown identity, inactive/missing membership, missing permission, cross-tenant access denial, and fail-closed provider/JWKS errors. A separate opt-in smoke/integration suite may use a dedicated Auth0 test tenant and short-lived credentials supplied by CI secrets. Do not make a successful external provider call a prerequisite for local unit tests.
+A suíte normal de CI não deve chamar Auth0 nem exigir credenciais do provedor. Deve cobrir adulteração de assinatura, emissor/audiência inválidos, expiração, declarações ausentes, algoritmos não suportados, sujeito vazio, identidade desconhecida, associação ausente/inativa, permissão ausente, negação entre tenants e falhas de provedor/JWKS com falha segura. Uma suíte separada e opcional de smoke/integration pode usar tenant Auth0 de teste dedicado e credenciais de curta duração fornecidas por secrets do CI. Não tornar chamadas externas bem-sucedidas pré-requisito para testes unitários locais.
 
-A second OIDC implementation (for example, a local Keycloak test realm) should eventually run the same adapter contract suite to detect Auth0-specific assumptions.
+Uma segunda implementação OIDC (por exemplo, realm de teste Keycloak local) deverá executar o mesmo contrato de testes para detectar suposições específicas do Auth0.
 
-## Evidence checklist
+## Lista de evidências
 
-Record the following in the deployment/release evidence ledger; do not mark the provider integration as operational until the applicable items are proven:
+Registrar os itens aplicáveis no registro de evidências de implantação/release. Não marcar a integração como operacional até que sejam comprovados:
 
-- [ ] Dedicated IAM Platform Auth0 tenant exists; actual domain, region, and issuer recorded.
-- [ ] API/resource server exists; exact audience recorded.
-- [ ] Web application callback/logout/origin allowlists contain only the required exact URLs.
-- [ ] Public configuration contains no secret; confidential credentials are stored outside source control.
-- [ ] JWKS URL responds and a real access token has the expected issuer and audience.
-- [ ] Valid token succeeds; invalid signature, issuer, audience, expiry, and missing subject fail closed.
-- [ ] Unknown identity, missing/inactive membership, missing permission, and cross-tenant access are denied.
-- [ ] Organization behavior is tested within the Free limit; IAM database remains canonical.
-- [ ] MFA entitlement is explicitly recorded. If unavailable on Free, no protected operation is represented as MFA-verified.
-- [ ] A deployment smoke test is recorded separately from unit/CI evidence.
+- [ ] Tenant Auth0 dedicado ao IAM Platform criado; domínio, região e emissor reais registrados.
+- [ ] Servidor de recursos/API criado; audiência exata registrada.
+- [ ] Listas permitidas de callback/logout/origem contêm apenas URLs exatas necessárias.
+- [ ] Configuração pública não contém segredos; credenciais confidenciais ficam fora do controle de versão.
+- [ ] URL JWKS responde e um token de acesso real tem emissor e audiência esperados.
+- [ ] Token válido funciona; assinatura, emissor, audiência, expiração e sujeito inválidos falham de forma segura.
+- [ ] Identidade desconhecida, associação ausente/inativa, permissão ausente e acesso entre tenants são negados.
+- [ ] Organizations foi testado dentro do limite gratuito; o banco IAM continua canônico.
+- [ ] Disponibilidade de MFA foi registrada explicitamente. Se indisponível no plano gratuito, nenhuma operação é apresentada como verificada por MFA.
+- [ ] Teste de implantação foi registrado separadamente das evidências unitárias/CI.
 
-## References
+## Referências
 
-- [Auth0 pricing (official)](https://auth0.com/pt/pricing)
-- [Auth0 entity limit policy](https://auth0.com/docs/troubleshoot/customer-support/operational-policies/entity-limit-policy)
-- [Auth0 Organizations setup](https://auth0.com/docs/manage-users/organizations/create-first-organization)
-- [Auth0 MFA documentation](https://auth0.com/docs/secure/multi-factor-authentication)
+- [Preços Auth0 (oficial)](https://auth0.com/pt/pricing)
+- [Política de limites de entidades Auth0](https://auth0.com/docs/troubleshoot/customer-support/operational-policies/entity-limit-policy)
+- [Configurar Organizations no Auth0](https://auth0.com/docs/manage-users/organizations/create-first-organization)
+- [Documentação de MFA do Auth0](https://auth0.com/docs/secure/multi-factor-authentication)
