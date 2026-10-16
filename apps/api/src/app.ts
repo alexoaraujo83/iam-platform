@@ -9,6 +9,7 @@ export interface TenantContextResponse {
 }
 
 export type ResolveTenantContext = (accessToken: string, tenantId: string) => Promise<TenantContextResponse | null>;
+export type ApiRequestHandler = (request: IncomingMessage, response: ServerResponse) => void;
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, {
@@ -19,7 +20,7 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(JSON.stringify(body));
 }
 
-export function createApiServer(resolveTenantContext: ResolveTenantContext): Server {
+export function createApiHandler(resolveTenantContext: ResolveTenantContext): ApiRequestHandler {
   async function routeRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? "/", "http://localhost");
     if (request.method === "GET" && url.pathname === "/health") {
@@ -77,14 +78,22 @@ export function createApiServer(resolveTenantContext: ResolveTenantContext): Ser
         sendJson(response, 503, { error: "identity_provider_unavailable" });
         return;
       }
+      if (errorCode?.startsWith("missing_required_configuration") || errorCode?.startsWith("invalid_positive_integer_configuration")) {
+        sendJson(response, 503, { error: "service_not_configured" });
+        return;
+      }
       sendJson(response, 500, { error: "internal_server_error" });
     }
   }
 
-  return createServer((request, response) => {
+  return (request, response) => {
     void routeRequest(request, response).catch(() => {
       if (!response.headersSent) sendJson(response, 500, { error: "internal_server_error" });
       else response.destroy();
     });
-  });
+  };
+}
+
+export function createApiServer(resolveTenantContext: ResolveTenantContext): Server {
+  return createServer(createApiHandler(resolveTenantContext));
 }
