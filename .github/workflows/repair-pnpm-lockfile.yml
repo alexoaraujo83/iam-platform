@@ -1,0 +1,44 @@
+name: Repair pnpm lockfile metadata
+
+on:
+  push:
+    branches:
+      - feat/nextjs-auth0-vercel-sdk
+    paths:
+      - .github/workflows/repair-pnpm-lockfile.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair-lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: feat/nextjs-auth0-vercel-sdk
+          persist-credentials: true
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.12.1
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Regenerate and validate lockfile
+        run: |
+          pnpm install --lockfile-only
+          pnpm install --frozen-lockfile
+      - name: Commit lockfile if changed
+        run: |
+          if git diff --quiet -- pnpm-lock.yaml; then
+            echo "Lockfile already synchronized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pnpm-lock.yaml
+          git commit -m "fix: synchronize pnpm 12 lockfile metadata"
+          git push origin HEAD:feat/nextjs-auth0-vercel-sdk
