@@ -57,9 +57,10 @@ describe("IAM HTTP API", () => {
     const checkReadiness = vi.fn<CheckReadiness>().mockRejectedValue(new Error("database password leaked"));
     const response = await requestApi(async () => null, "/health/ready", undefined, checkReadiness);
     expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ status: "not_ready", reason: "dependency_unavailable" });
+    const body = await response.text();
+    expect(JSON.parse(body)).toEqual({ status: "not_ready", reason: "dependency_unavailable" });
     expect(checkReadiness).toHaveBeenCalledOnce();
-    expect(await response.text()).not.toContain("password");
+    expect(body).not.toContain("password");
   });
 
   it("fails closed when the readiness check is not configured", async () => {
