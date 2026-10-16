@@ -9,6 +9,7 @@ export interface TenantContextResponse {
 }
 
 export type ResolveTenantContext = (accessToken: string, tenantId: string) => Promise<TenantContextResponse | null>;
+export type CheckReadiness = () => Promise<boolean>;
 export type ApiRequestHandler = (request: IncomingMessage, response: ServerResponse) => void;
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
@@ -20,12 +21,21 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(JSON.stringify(body));
 }
 
-export function createApiHandler(resolveTenantContext: ResolveTenantContext): ApiRequestHandler {
+export function createApiHandler(resolveTenantContext: ResolveTenantContext, checkReadiness: CheckReadiness): ApiRequestHandler {
   async function routeRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? "/", "http://localhost");
     const routePath = url.pathname === "/api/index" ? (url.searchParams.get("path") ?? "/") : url.pathname;
     if (request.method === "GET" && routePath === "/health") {
       sendJson(response, 200, { status: "ok" });
+      return;
+    }
+    if (request.method === "GET" && routePath === "/health/ready") {
+      try {
+        const ready = await checkReadiness();
+        sendJson(response, ready ? 200 : 503, { status: ready ? "ready" : "not_ready" });
+      } catch {
+        sendJson(response, 503, { status: "not_ready" });
+      }
       return;
     }
 
@@ -95,6 +105,6 @@ export function createApiHandler(resolveTenantContext: ResolveTenantContext): Ap
   };
 }
 
-export function createApiServer(resolveTenantContext: ResolveTenantContext): Server {
-  return createServer(createApiHandler(resolveTenantContext));
+export function createApiServer(resolveTenantContext: ResolveTenantContext, checkReadiness: CheckReadiness): Server {
+  return createServer(createApiHandler(resolveTenantContext, checkReadiness));
 }
