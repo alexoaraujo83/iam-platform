@@ -1,7 +1,8 @@
+import { NextRequest } from "next/server";
 import { auth0 } from "./lib/auth0";
 
 /** Auth0 SDK routes and session middleware for Next.js 16. */
-export async function proxy(request: Request) {
+export async function proxy(request: NextRequest) {
   return await auth0.middleware(request);
 }
 
