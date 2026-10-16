@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
-import { createApiServer, type ResolveTenantContext, type TenantContextResponse } from "./app.js";
+import { createApiServer, type CheckReadiness, type ResolveTenantContext, type TenantContextResponse } from "./app.js";
 
 const context: TenantContextResponse = {
   tenantId: "11111111-1111-4111-8111-111111111111",
@@ -13,9 +13,10 @@ const servers: ReturnType<typeof createApiServer>[] = [];
 async function requestApi(
   resolver: ResolveTenantContext,
   path: string,
-  headers?: Record<string, string>
+  headers?: Record<string, string>,
+  checkReadiness?: CheckReadiness
 ): Promise<Response> {
-  const server = createApiServer(resolver);
+  const server = createApiServer(resolver, checkReadiness);
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as AddressInfo;
@@ -33,10 +34,38 @@ afterEach(async () => {
 describe("IAM HTTP API", () => {
   it("serves health without touching identity or the database", async () => {
     const resolver = vi.fn<ResolveTenantContext>();
-    const response = await requestApi(resolver, "/health");
+    const checkReadiness = vi.fn<CheckReadiness>();
+    const response = await requestApi(resolver, "/health", undefined, checkReadiness);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ status: "ok" });
     expect(resolver).not.toHaveBeenCalled();
+    expect(checkReadiness).not.toHaveBeenCalled();
+  });
+
+  it("reports ready only after the readiness dependency check succeeds", async () => {
+    const resolver = vi.fn<ResolveTenantContext>();
+    const checkReadiness = vi.fn<CheckReadiness>().mockResolvedValue(undefined);
+    const response = await requestApi(resolver, "/health/ready", undefined, checkReadiness);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "ready" });
+    expect(checkReadiness).toHaveBeenCalledOnce();
+    expect(resolver).not.toHaveBeenCalled();
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("returns a sanitized 503 when the readiness dependency check fails", async () => {
+    const checkReadiness = vi.fn<CheckReadiness>().mockRejectedValue(new Error("database password leaked"));
+    const response = await requestApi(async () => null, "/health/ready", undefined, checkReadiness);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ status: "not_ready", reason: "dependency_unavailable" });
+    expect(checkReadiness).toHaveBeenCalledOnce();
+    expect(await response.text()).not.toContain("password");
+  });
+
+  it("fails closed when the readiness check is not configured", async () => {
+    const response = await requestApi(async () => null, "/health/ready");
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ status: "not_ready", reason: "readiness_check_unconfigured" });
   });
 
   it.each([
