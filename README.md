@@ -1,68 +1,68 @@
 # IAM Platform
 
-A provider-independent Identity and Access Management foundation for multi-tenant applications.
+Base de Gerenciamento de Identidade e Acesso (IAM) independente de provedor para aplicações multi-inquilino (*multi-tenant*).
 
-## Principles
+## Princípios
 
-- Identity authentication is separate from authorization.
-- OIDC adapters normalize verified identities; provider claims are not domain truth.
-- Tenant membership and permissions are database-backed.
-- Authorization denies by default.
-- PostgreSQL RLS is defense in depth, not a replacement for application authorization.
-- Security claims require reproducible tests and recorded evidence.
+- Autenticação de identidade é separada de autorização.
+- Adaptadores OIDC normalizam identidades verificadas; declarações (*claims*) do provedor não são a fonte de verdade do domínio.
+- Associação ao tenant e permissões são respaldadas pelo banco de dados.
+- A autorização nega por padrão.
+- O RLS do PostgreSQL é uma camada adicional de defesa, não substitui a autorização da aplicação.
+- Afirmações de segurança exigem testes reproduzíveis e evidências registradas.
 
-## Current scope
+## Escopo atual
 
-This repository contains shared domain contracts, an exact-match RBAC evaluator, an OIDC/JWT verifier package, a PostgreSQL schema migration and RLS tests, database-backed membership resolution, and a helper that keeps authenticated tenant work inside the same RLS-scoped transaction. The helper requires an explicit authorization evaluator and does not invoke protected work unless the required permission is allowed. An initial HTTP API now exists in `apps/api` with a health endpoint and a tenant-context route. It has HTTP-level tests, but is not yet deployed and has not been validated against a production database or target identity provider. An admin UI remains pending. A transactional audit writer, append-only database migration, and deployment verification SQL are implemented; wiring audit writes into every security-sensitive flow and verifying the target deployment remain pending. The API now has bounded HTTP/database settings and graceful shutdown; these controls still require deployment verification.
+Este repositório contém contratos compartilhados de domínio, avaliador RBAC de correspondência exata, pacote de verificação OIDC/JWT, migração de esquema PostgreSQL e testes RLS, resolução de associação baseada no banco e um auxiliar que mantém operações do tenant autenticado na mesma transação com escopo RLS. O auxiliar exige um avaliador explícito de autorização e não executa operações protegidas sem a permissão necessária. Existe uma API HTTP inicial em `apps/api`, com endpoint de saúde e rota de contexto do tenant. Há testes HTTP, mas a API ainda não foi implantada nem validada com banco de produção ou provedor de identidade de destino. A interface administrativa ainda está pendente. Um gravador transacional de auditoria, migração append-only e SQL de verificação da implantação foram implementados; ainda falta integrar a auditoria a todos os fluxos sensíveis e verificar a implantação de destino. A API possui limites de HTTP/banco e encerramento gracioso, controles que ainda precisam ser verificados após a implantação.
 
-## Prerequisites
+## Pré-requisitos
 
-- Node.js 24 (matches CI; `engines.node` requires `>=24.0.0`)
-- pnpm 12.12.1 (pinned by `packageManager` and CI)
+- Node.js 24 (compatível com CI; `engines.node` exige `>=24.0.0`)
+- pnpm 12.12.1 (fixado em `packageManager` e no CI)
 
-## Commands
+## Comandos
 
-- `pnpm install --frozen-lockfile` (reproducible dependency installation)
-- `pnpm typecheck`
-- `pnpm test`
+- `pnpm install --frozen-lockfile` — instalação reproduzível das dependências
+- `pnpm typecheck` — verificação de tipos
+- `pnpm test` — testes
 
-## Structure
+## Estrutura
 
-- `packages/contracts`: provider-independent domain contracts
-- `packages/identity`: OIDC JWT verification against a configured trusted issuer/JWKS
-- `packages/authorization`: deny-by-default exact permission evaluator
-- `packages/database`: PostgreSQL schema, RLS tests, membership resolver and authenticated-tenant transaction helper
-- `apps/api`: HTTP API, OIDC-backed tenant-context endpoint and HTTP denial-path tests
-- `docs/architecture`: architecture boundaries and tenancy invariants
-- `docs/identity/auth0-reference.md`: Auth0 OIDC reference configuration, provider-independent test contract, and explicit plan/entitlement gate
-- `docs/security`: initial threat model and required security gates
+- `packages/contracts`: contratos de domínio independentes de provedor
+- `packages/identity`: verificação de JWT OIDC usando emissor/JWKS confiáveis configurados
+- `packages/authorization`: avaliador de permissões exatas com negação por padrão
+- `packages/database`: esquema PostgreSQL, testes RLS, resolução de associação e transação de tenant autenticado
+- `apps/api`: API HTTP, endpoint de contexto do tenant com OIDC e testes de negação HTTP
+- `docs/architecture`: limites arquiteturais e invariantes de multi-tenancy
+- `docs/identity/auth0-reference.md`: configuração de referência OIDC do Auth0, contrato de testes independente de provedor e verificação explícita de plano/recursos
+- `docs/security`: modelo inicial de ameaças e controles de segurança obrigatórios
 
-## OIDC verifier boundary
+## Limites do verificador OIDC
 
-The verifier validates the cryptographic signature, configured issuer and audience, expiration, required subject/issued-at claims, and a fixed allowlist of asymmetric algorithms. Issuer and JWKS endpoints must use HTTPS. The JWKS URL is trusted server-side configuration and must never be derived from request input or unverified token data. The verifier returns normalized issuer/subject identity data only; it does not infer tenant membership, roles or permissions.
+O verificador valida assinatura criptográfica, emissor e audiência configurados, expiração, declarações obrigatórias de sujeito e emissão, e uma lista fixa de algoritmos assimétricos permitidos. O emissor e os endpoints JWKS devem usar HTTPS. A URL JWKS é configuração confiável do servidor e nunca pode ser derivada de dados da requisição ou de token não verificado. O verificador retorna somente identidade normalizada de emissor/sujeito; não infere associação a tenant, funções ou permissões.
 
-Unit tests use generated signing keys and a local JWKS resolver. Production issuer discovery, remote JWKS behavior against each target provider, database-backed principal mapping and end-to-end API authentication still require integration validation.
+Os testes unitários usam chaves de assinatura geradas e um resolvedor JWKS local. Descoberta do emissor real, comportamento de JWKS remoto em cada provedor de destino, mapeamento de identidade no banco e autenticação ponta a ponta da API ainda exigem validação de integração.
 
-## HTTP API
+## API HTTP
 
-`apps/api` exposes `GET /health` and `GET /v1/tenants/:tenantId/context`. The latter requires a Bearer access token, verifies it against the server-configured OIDC issuer/audience/JWKS, resolves active membership and the `iam.context.read` permission in the same RLS-scoped database transaction, and returns only the normalized tenant context. Missing credentials return `401`; invalid tokens return `401`; missing membership or denied permissions return `403`; remote OIDC/JWKS unavailability returns a sanitized `503`; unexpected failures return a sanitized `500`. Configure `DATABASE_URL`, `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URI`, and optionally `OIDC_ALLOWED_ALGORITHMS` (defaults to `RS256`). `PORT` defaults to `3000`. Copy `.env.example` for local configuration and never commit real credentials. HTTP tests exercise health, malformed credentials, membership/permission denial, invalid tokens, sanitized errors and unknown routes; they do not replace end-to-end OIDC/PostgreSQL integration tests.
+`apps/api` expõe `GET /health` e `GET /v1/tenants/:tenantId/context`. O segundo endpoint exige token de acesso Bearer, valida-o usando emissor/audiência/JWKS OIDC configurados no servidor, resolve associação ativa e permissão `iam.context.read` na mesma transação PostgreSQL com escopo RLS e retorna somente o contexto normalizado do tenant. Credenciais ausentes retornam `401`; tokens inválidos retornam `401`; associação ausente ou permissão negada retorna `403`; indisponibilidade remota de OIDC/JWKS retorna `503` sanitizado; falhas inesperadas retornam `500` sanitizado. Configure `DATABASE_URL`, `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URI` e, opcionalmente, `OIDC_ALLOWED_ALGORITHMS` (padrão `RS256`). `PORT` usa `3000` por padrão. Copie `.env.example` para a configuração local e nunca versione credenciais reais. Os testes HTTP cobrem saúde, credenciais malformadas, negação por associação/permissão, tokens inválidos, erros sanitizados e rotas desconhecidas; eles não substituem testes de integração OIDC/PostgreSQL ponta a ponta.
 
-## Authenticated tenant transaction
+## Transação de tenant autenticado
 
-Use `withAuthenticatedTenant` from the database package to verify an access token before acquiring a connection, resolve the active membership and DB-derived permissions, and pass an explicit required permission plus the shared deny-by-default authorization evaluator. Protected queries run on the same explicit transaction where the RLS tenant setting was established, and the callback is not invoked unless authorization allows. A missing membership fails closed. The helper is a composition primitive, not a deployed HTTP API or session service.
+Use `withAuthenticatedTenant` do pacote de banco para verificar um token antes de obter conexão, resolver a associação ativa e permissões derivadas do banco, e informar uma permissão exigida explícita junto do avaliador compartilhado de autorização que nega por padrão. Consultas protegidas executam na mesma transação explícita em que o contexto RLS do tenant foi definido, e o callback não é chamado sem autorização. Associação ausente resulta em falha segura. O auxiliar é uma primitiva de composição, não uma API HTTP implantada nem um serviço de sessão.
 
-## PostgreSQL RLS evidence
+## Evidências de RLS do PostgreSQL
 
-The CI integration suite applies the migration to PostgreSQL 16 and verifies that the test runtime role has neither superuser nor `BYPASSRLS`, missing tenant context returns no tenant-scoped rows, a tenant sees only its own rows, cross-tenant inserts fail with SQLSTATE `42501`, and cross-tenant updates do not mutate another tenant's membership. This evidence is limited to the ephemeral CI database and does not establish production deployment or all-table coverage.
+A suíte de integração do CI aplica a migração ao PostgreSQL 16 e verifica que a função de runtime de teste não é superusuária nem possui `BYPASSRLS`, que a ausência de contexto de tenant não retorna linhas desse tenant, que cada tenant vê somente suas próprias linhas, que inserções entre tenants falham com SQLSTATE `42501` e que atualizações entre tenants não alteram a associação de outro tenant. Essa evidência limita-se ao banco efêmero do CI e não comprova implantação de produção nem cobertura de todas as tabelas.
 
-## Security notes
+## Segurança
 
-Never put secrets in source control. A tenant claim does not prove membership. Do not deploy until the runtime HTTP/session integration, real-provider and deployment-database validation, comprehensive migration/RLS integration tests, durable audit, and operational controls are implemented and reviewed.
+Nunca inclua segredos no controle de versão. Uma declaração de tenant não comprova associação. Não implante até que a integração HTTP/sessão em runtime, validação com provedor real e banco de implantação, testes abrangentes de migração/RLS, auditoria durável e controles operacionais estejam implementados e revisados.
 
-## Production operations
+## Operações de produção
 
-See [`docs/operations/production-readiness-runbook.md`](docs/operations/production-readiness-runbook.md) for real-provider OIDC tests, target-PostgreSQL/RLS verification, durable audit requirements, deployment/recovery procedures, and the evidence ledger. The runbook is intentionally explicit that CI success is not production evidence. Real-provider OIDC/JWKS, deployment database validation, durable audit implementation, and a restore drill remain release blockers until recorded as passing.
+Consulte o [manual de prontidão para produção](docs/operations/production-readiness-runbook.md) para testes OIDC com provedor real, verificação PostgreSQL/RLS no destino, requisitos de auditoria durável, procedimentos de implantação/recuperação e registro de evidências. O manual deixa explícito que sucesso no CI não é evidência de produção. OIDC/JWKS real, validação do banco de implantação, auditoria durável e teste de restauração continuam bloqueadores de release até serem registrados como aprovados.
 
-## Delivery governance
+## Governança de entrega
 
-Work is proposed through pull requests. Track each item as discovered, implemented, tested, integrated and operational separately; do not promote status without evidence.
+O trabalho é proposto por pull requests. Acompanhe cada item separando descoberta, implementação, teste, integração e operação; não promova o status sem evidências.
