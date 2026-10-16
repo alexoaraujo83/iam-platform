@@ -1,59 +1,59 @@
-# Database package
+# Pacote de banco de dados
 
-This directory contains versioned PostgreSQL migrations, tenant-isolation integration tests, and the database-side authenticated-tenant transaction boundary for the IAM platform.
+Este diretório contém migrações PostgreSQL versionadas, testes de integração de isolamento entre tenants e o limite transacional de tenant autenticado no banco da plataforma IAM.
 
-## Migration 0001
+## Migração 0001
 
-Creates tenants, principals, external OIDC identities, memberships, permissions, tenant roles, role grants, application registrations and audit events.
+Cria tenants, identidades internas (*principals*), identidades externas OIDC, associações, permissões, funções por tenant, concessões de função, registros de aplicações e eventos de auditoria.
 
-Tenant-owned tables use ENABLE ROW LEVEL SECURITY and FORCE ROW LEVEL SECURITY. The application must set `app.tenant_id` transaction-locally only after it has validated the authenticated principal and active membership. Never use an untrusted token claim as proof of membership.
+Tabelas pertencentes a tenants usam ENABLE ROW LEVEL SECURITY e FORCE ROW LEVEL SECURITY. A aplicação deve definir `app.tenant_id` localmente à transação somente depois de validar a identidade autenticada e a associação ativa. Nunca usar declaração não confiável do token como prova de associação.
 
-The global `principals` and `external_identities` tables also enforce tenant-scoped read visibility through RLS policies tied to an active membership in the current transaction tenant. The runtime role receives SELECT only on those identity tables and the global `permissions` catalog; it receives no write privileges on identity records. The permission catalog contains global permission definitions, not user identity data.
+As tabelas globais `principals` e `external_identities` também limitam a visibilidade de leitura por tenant por meio de políticas RLS vinculadas a uma associação ativa no tenant da transação atual. A função de runtime recebe somente SELECT nessas tabelas de identidade e no catálogo global `permissions`; não recebe privilégios de escrita nos registros de identidade. O catálogo de permissões contém definições globais de permissões, não dados de identidade de usuários.
 
-## Identity-to-membership resolution
+## Resolução de identidade para associação
 
-`src/membership-resolution.ts` maps a cryptographically verified `(issuer, subject)` pair to an active local principal, tenant and membership, then loads permissions from active membership-role grants. The requested tenant ID is only an RLS scope selector; it never proves access. The resolver fails closed when the principal, tenant or membership is inactive/missing and rejects malformed permission keys.
+`src/membership-resolution.ts` mapeia um par (emissor, sujeito) criptograficamente verificado para identidade interna, tenant e associação locais ativos; em seguida, carrega permissões das concessões de função de associações ativas. O ID de tenant solicitado é somente um seletor de escopo RLS; nunca comprova acesso. O resolvedor falha de forma segura quando identidade, tenant ou associação estão ausentes/inativos e rejeita chaves de permissão malformadas.
 
-## Authenticated tenant transaction
+## Transação de tenant autenticado
 
-`src/authenticated-tenant.ts` composes token verification, membership resolution, authorization, and protected database work:
+`src/authenticated-tenant.ts` compõe verificação do token, resolução de associação, autorização e operação protegida no banco:
 
-1. Validate the required permission and verify the access token before acquiring a database connection.
-2. Start an explicit PostgreSQL transaction.
-3. Resolve the active membership and DB-derived permissions, setting `app.tenant_id` transaction-locally.
-4. Call the supplied authorization evaluator for the exact required permission. If it denies, protected work is not invoked and the transaction is rolled back.
-5. Invoke the protected-operation callback on the same client/transaction only after authorization allows.
-6. Commit on success; roll back on missing membership, denial, or errors; always release the client.
+1. Validar a permissão exigida e verificar o token de acesso antes de obter conexão com o banco.
+2. Iniciar uma transação PostgreSQL explícita.
+3. Resolver associação ativa e permissões derivadas do banco, definindo `app.tenant_id` localmente à transação.
+4. Chamar o avaliador de autorização fornecido para a permissão exata exigida. Se negar, a operação protegida não é chamada e a transação sofre rollback.
+5. Executar o callback da operação protegida no mesmo cliente/transação somente após autorização.
+6. Confirmar em caso de sucesso; reverter em associação ausente, negação ou erro; sempre liberar o cliente.
 
-Pass a verifier created from trusted server-side OIDC configuration (for example `createOidcVerifier`) and the shared deny-by-default `authorize` evaluator from the authorization package. Never pass decoded, unverified JWT claims or an allow-all evaluator. Keep all tenant-scoped queries inside the callback; a transaction-local RLS setting does not survive commit.
+Fornecer um verificador criado a partir de configuração OIDC confiável do servidor (por exemplo, `createOidcVerifier`) e o avaliador compartilhado `authorize`, que nega por padrão, do pacote de autorização. Nunca fornecer declarações JWT apenas decodificadas/não verificadas nem um avaliador que permita tudo. Manter todas as consultas com escopo de tenant dentro do callback; uma configuração RLS local à transação não sobrevive ao commit.
 
-The unit tests cover membership resolution and transaction lifecycle, including verification failure before DB acquisition, missing membership, explicit RBAC denial before protected work, rollback, and client release. These tests do not replace end-to-end validation with a real OIDC provider and PostgreSQL.
+Os testes unitários cobrem resolução de associação e ciclo de vida da transação, incluindo falha de verificação antes de obter conexão, associação ausente, negação RBAC explícita antes da operação protegida, rollback e liberação do cliente. Esses testes não substituem validação ponta a ponta com provedor OIDC real e PostgreSQL.
 
-## Automated integration evidence
+## Evidências de integração automatizada
 
-The GitHub Actions CI starts an ephemeral PostgreSQL 16 service, applies this migration, and connects as a dedicated `iam_runtime` test role with `NOSUPERUSER` and `NOBYPASSRLS`. Current tests verify:
+O CI do GitHub Actions inicia um serviço PostgreSQL 16 efêmero, aplica esta migração e conecta como função de teste dedicada `iam_runtime`, com `NOSUPERUSER` e `NOBYPASSRLS`. Os testes atuais verificam:
 
-- Missing tenant context exposes no rows from `tenants` or `memberships`.
-- Tenant A can read its own rows but not tenant B's rows, including principals and external identity mappings.
-- A cross-tenant membership insert is rejected with SQLSTATE `42501`.
-- A cross-tenant update affects zero rows and leaves the target membership unchanged.
-- The runtime role is not a superuser and does not bypass RLS.
+- Ausência de contexto de tenant não expõe linhas de `tenants` ou `memberships`.
+- Tenant A lê suas próprias linhas, mas não as de tenant B, inclusive mapeamentos de identidades internas e externas.
+- Inserção de associação entre tenants é rejeitada com SQLSTATE `42501`.
+- Atualização entre tenants afeta zero linhas e deixa a associação de destino inalterada.
+- A função de runtime não é superusuária e não ignora RLS.
 
-Run this suite only against a disposable PostgreSQL database by setting `IAM_DATABASE_INTEGRATION=1`, `DATABASE_URL` (migration/test administrator), and `IAM_RUNTIME_DATABASE_URL` (runtime test role). The CI database is ephemeral; this is not production evidence.
+Executar esta suíte somente contra banco PostgreSQL descartável, definindo `IAM_DATABASE_INTEGRATION=1`, `DATABASE_URL` (administrador de migração/testes) e `IAM_RUNTIME_DATABASE_URL` (função de runtime de teste). O banco do CI é efêmero; não é evidência de produção.
 
-## Durable audit events
+## Eventos de auditoria durável
 
-`src/audit.ts` exports `appendAuditEvent(client, event)`. Invoke it with the same transaction/client as the security-sensitive state change when atomicity is required. Persistence errors are propagated; callers must not silently discard audit failures. Do not include tokens, credentials, authorization headers, or secrets in metadata. Migration `0002_durable_audit_controls.sql` adds bounded JSON metadata/request ID fields and blocks UPDATE/DELETE with SQLSTATE `42501`; runtime grants must be least privilege. Apply migrations in order with the migration owner.
+`src/audit.ts` exporta `appendAuditEvent(client, event)`. Invocá-lo com a mesma transação/cliente da alteração sensível quando a atomicidade for necessária. Erros de persistência são propagados; os chamadores não devem descartar falhas de auditoria silenciosamente. Não incluir tokens, credenciais, cabeçalhos de autorização ou segredos nos metadados. A migração `0002_durable_audit_controls.sql` adiciona campos limitados de metadados JSON/ID de requisição e bloqueia UPDATE/DELETE com SQLSTATE `42501`; as permissões de runtime devem seguir o privilégio mínimo. Aplicar migrações em ordem usando o proprietário de migração.
 
-## Deployment requirements
+## Requisitos de implantação
 
-- Apply migrations with a dedicated schema/migration owner.
-- The runtime database role must not be superuser and must not have BYPASSRLS.
-- Grant runtime access explicitly; this migration intentionally does not create credentials or grant broad privileges.
-- Keep principals and external_identities behind trusted server-side service boundaries.
-- Audit records with NULL tenant_id are reserved for explicitly global security events and require separate authorization at the service layer.
-- Run `migrations/verify_runtime_security.sql` as the actual runtime role against the target database and preserve output as release evidence.
-- Extend integration coverage to all tenant-scoped tables and production migration/grant validation before production.
-- Validate the migration against the actual deployment database and verify runtime grants before any production claim.
+- Aplicar migrações com proprietário dedicado de esquema/migração.
+- A função de banco de runtime não pode ser superusuária nem ter `BYPASSRLS`.
+- Conceder acesso de runtime explicitamente; esta migração não cria credenciais nem concede privilégios amplos.
+- Manter `principals` e `external_identities` atrás de limites de serviço confiáveis no servidor.
+- Registros de auditoria com `tenant_id` NULL são reservados a eventos de segurança explicitamente globais e exigem autorização separada na camada de serviço.
+- Executar `migrations/verify_runtime_security.sql` como a função real de runtime no banco de destino e preservar a saída como evidência de release.
+- Ampliar a cobertura de integração a todas as tabelas com escopo de tenant e validar migrações/concessões de produção antes da produção.
+- Validar a migração no banco real da implantação e verificar as permissões de runtime antes de qualquer declaração de prontidão de produção.
 
-This migration is an initial schema baseline. CI validation demonstrates behavior in an ephemeral test database only; it does not prove RLS is enabled or correctly configured in any deployed environment.
+Esta migração é uma base inicial de esquema. A validação no CI demonstra comportamento somente em banco de teste efêmero; não prova que RLS esteja habilitado ou configurado corretamente em qualquer ambiente implantado.
