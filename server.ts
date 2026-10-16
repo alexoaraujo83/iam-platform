@@ -1,5 +1,5 @@
 /**
- * Vercel Node.js runtime entrypoint.
+ * Vercel Node.js runtime entrypoint for the monorepo root.
  *
  * The API owns HTTP routing, OIDC verification, PostgreSQL tenant scoping,
  * bounded timeouts, and graceful shutdown in apps/api/src/server.ts.
