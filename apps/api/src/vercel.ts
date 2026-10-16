@@ -24,6 +24,7 @@ function positiveIntegerEnv(name: string, fallback: number): number {
 }
 
 let resolveTenantContext: ResolveTenantContext | undefined;
+let checkReadiness: (() => Promise<boolean>) | undefined;
 let initializationError: unknown;
 let initialized = false;
 
@@ -64,6 +65,14 @@ function initializeRuntime(): ResolveTenantContext {
     pool.on("error", () => {
       console.error(JSON.stringify({ level: "error", event: "database_idle_client_error" }));
     });
+    checkReadiness = async () => {
+      try {
+        await pool.query("SELECT 1");
+        return true;
+      } catch {
+        return false;
+      }
+    };
 
     resolveTenantContext = async (accessToken, tenantId) =>
       withAuthenticatedTenant(
@@ -82,8 +91,16 @@ function initializeRuntime(): ResolveTenantContext {
   }
 }
 
-const handler = createApiHandler(async (accessToken, tenantId) =>
-  initializeRuntime()(accessToken, tenantId)
+const handler = createApiHandler(
+  async (accessToken, tenantId) => initializeRuntime()(accessToken, tenantId),
+  async () => {
+    try {
+      initializeRuntime();
+      return (await checkReadiness?.()) ?? false;
+    } catch {
+      return false;
+    }
+  }
 );
 
 export default function apiHandler(request: IncomingMessage, response: ServerResponse): void {
