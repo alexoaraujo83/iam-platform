@@ -60,7 +60,6 @@ describe("IAM HTTP API", () => {
     const response = await requestApi(vi.fn<ResolveTenantContext>(), "/health/ready", undefined, checkReadiness);
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ status: "not_ready" });
-    expect(await response.text().catch(() => "")).not.toContain("database credentials");
   });
 
   it.each([
