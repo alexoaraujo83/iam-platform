@@ -58,16 +58,25 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error("invalid_port_configuration");
 }
 
-const server = createApiServer(async (accessToken, tenantId) =>
-  withAuthenticatedTenant(
-    pool,
-    verifyAccessToken,
-    accessToken,
-    tenantId,
-    { resource: "iam", action: "context.read" },
-    (authorizationContext, requiredPermission) => authorize(authorizationContext, requiredPermission),
-    async (_client, membership) => membership
-  )
+const server = createApiServer(
+  async (accessToken, tenantId) =>
+    withAuthenticatedTenant(
+      pool,
+      verifyAccessToken,
+      accessToken,
+      tenantId,
+      { resource: "iam", action: "context.read" },
+      (authorizationContext, requiredPermission) => authorize(authorizationContext, requiredPermission),
+      async (_client, membership) => membership
+    ),
+  async () => {
+    try {
+      await pool.query("SELECT 1");
+      return true;
+    } catch {
+      return false;
+    }
+  }
 );
 
 server.requestTimeout = positiveIntegerEnv("HTTP_REQUEST_TIMEOUT_MS", 15_000);
