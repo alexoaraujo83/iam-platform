@@ -9,6 +9,7 @@ export interface TenantContextResponse {
 }
 
 export type ResolveTenantContext = (accessToken: string, tenantId: string) => Promise<TenantContextResponse | null>;
+export type CheckReadiness = () => Promise<void>;
 export type ApiRequestHandler = (request: IncomingMessage, response: ServerResponse) => void;
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
@@ -20,7 +21,10 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(JSON.stringify(body));
 }
 
-export function createApiHandler(resolveTenantContext: ResolveTenantContext): ApiRequestHandler {
+export function createApiHandler(
+  resolveTenantContext: ResolveTenantContext,
+  checkReadiness?: CheckReadiness
+): ApiRequestHandler {
   async function routeRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? "/", "http://localhost");
     const routePath = url.pathname === "/api/index" ? (url.searchParams.get("path") ?? "/") : url.pathname;
@@ -29,7 +33,21 @@ export function createApiHandler(resolveTenantContext: ResolveTenantContext): Ap
       return;
     }
 
-    const match = /^\/v1\/tenants\/([^/]+)\/context$/.exec(routePath);
+    if (request.method === "GET" && routePath === "/health/ready") {
+      if (!checkReadiness) {
+        sendJson(response, 503, { status: "not_ready", reason: "readiness_check_unconfigured" });
+        return;
+      }
+      try {
+        await checkReadiness();
+        sendJson(response, 200, { status: "ready" });
+      } catch {
+        sendJson(response, 503, { status: "not_ready", reason: "dependency_unavailable" });
+      }
+      return;
+    }
+
+    const match = /^\\/v1\\/tenants\\/([^/]+)\\/context$/.exec(routePath);
     if (request.method !== "GET" || !match?.[1]) {
       sendJson(response, 404, { error: "not_found" });
       return;
@@ -95,6 +113,9 @@ export function createApiHandler(resolveTenantContext: ResolveTenantContext): Ap
   };
 }
 
-export function createApiServer(resolveTenantContext: ResolveTenantContext): Server {
-  return createServer(createApiHandler(resolveTenantContext));
+export function createApiServer(
+  resolveTenantContext: ResolveTenantContext,
+  checkReadiness?: CheckReadiness
+): Server {
+  return createServer(createApiHandler(resolveTenantContext, checkReadiness));
 }
