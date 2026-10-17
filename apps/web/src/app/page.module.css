@@ -62,8 +62,7 @@
   line-height: 1.6;
 }
 
-.note,
-.footer {
+.note {
   color: #687185;
   font-size: 13px;
   line-height: 1.6;
@@ -101,10 +100,6 @@
 
 .secondary:hover {
   background: #f0efff;
-}
-
-.footer {
-  margin-top: 36px;
 }
 
 @media (prefers-reduced-motion: reduce) {
