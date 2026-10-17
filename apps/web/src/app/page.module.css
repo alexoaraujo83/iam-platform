@@ -113,3 +113,46 @@
     transition: none;
   }
 }
+
+
+.fields {
+  display: grid;
+  width: 100%;
+  gap: 0;
+  margin: 8px 0;
+  border: 1px solid #e4e7f0;
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+
+.field {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.8fr) minmax(0, 1.2fr);
+  gap: 16px;
+  padding: 13px 16px;
+  border-bottom: 1px solid #e4e7f0;
+}
+
+.field:last-child {
+  border-bottom: 0;
+}
+
+.field dt {
+  color: #687185;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.field dd {
+  margin: 0;
+  color: #172033;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 520px) {
+  .field {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+}
