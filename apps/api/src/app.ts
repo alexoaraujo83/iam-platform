@@ -35,7 +35,7 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
 
 export function createApiHandler(
   resolveTenantContext: ResolveTenantContext,
-  checkReadiness: CheckReadiness = async () => true
+  checkReadiness: CheckReadiness = async () => false
 ): ApiRequestHandler {
   async function routeRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? "/", "http://localhost");
@@ -127,7 +127,7 @@ export function createApiHandler(
 
 export function createApiServer(
   resolveTenantContext: ResolveTenantContext,
-  checkReadiness: CheckReadiness = async () => true
+  checkReadiness: CheckReadiness = async () => false
 ): Server {
   return createServer(createApiHandler(resolveTenantContext, checkReadiness));
 }
