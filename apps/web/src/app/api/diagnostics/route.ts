@@ -42,19 +42,35 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim();
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: "application/json",
+    };
+    // Preview deployments protected by Vercel SSO require the automation bypass
+    // header for server-to-server calls. Never expose this secret to the browser.
+    if (bypassSecret) headers["x-vercel-protection-bypass"] = bypassSecret;
+
     const response = await fetch(
       `${apiBase}/v1/tenants/${encodeURIComponent(tenantId)}/control-center`,
       {
         method: "GET",
-        headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+        headers,
         cache: "no-store",
         signal: AbortSignal.timeout(8_000),
       },
     );
-    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    const contentType = response.headers.get("content-type") ?? "";
+    const payload = contentType.includes("application/json")
+      ? (await response.json().catch(() => ({}))) as Record<string, unknown>
+      : {};
 
     if (!response.ok) {
-      const code = typeof payload.error === "string" ? payload.error : "api_request_failed";
+      const code = typeof payload.error === "string"
+        ? payload.error
+        : response.status === 401 || response.status === 403
+          ? "upstream_access_protection_or_non_json_response"
+          : "api_request_failed";
       return safeResult(200, {
         ok: false,
         apiStatus: response.status,
