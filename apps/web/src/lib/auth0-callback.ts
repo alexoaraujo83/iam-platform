@@ -21,7 +21,7 @@ export async function handleAuth0Callback(
   if (error) {
     const identifier = `${error.code ?? ""} ${error.name ?? ""}`;
     const isProviderUnavailable =
-      /(discovery|network|fetch|timeout|unavailable|econn|enotfound|eai_again|temporar)/i.test(
+      /(discovery|network|fetch|timeout|unavailable|econn|enotfound|eai_again|temporar|authorization_code_grant_request_error)/i.test(
         identifier
       );
 
