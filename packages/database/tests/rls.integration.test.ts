@@ -49,6 +49,11 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
       "utf8"
     );
     await admin.query(auditMigration);
+    const controlCenterPermissionMigration = await readFile(
+      new URL("../migrations/0003_control_center_read_permission.sql", import.meta.url),
+      "utf8"
+    );
+    await admin.query(controlCenterPermissionMigration);
 
     await admin.query(`
       DO $$
@@ -109,6 +114,12 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     );
     await admin.query("INSERT INTO role_permissions (tenant_id, role_id, permission_id) VALUES ($1, $2, $3)", [tenantA, roleA, permissionResult.rows[0]!.id]);
     await admin.query("INSERT INTO role_permissions (tenant_id, role_id, permission_id) VALUES ($1, $2, $3)", [tenantB, roleB, permissionResult.rows[0]!.id]);
+    const controlCenterPermission = await admin.query<{ id: string }>(
+      "SELECT id FROM permissions WHERE permission_key = 'iam.control_center.read'"
+    );
+    expect(controlCenterPermission.rows).toHaveLength(1);
+    // Explicitly grant this capability to Tenant B's admin role only.
+    await admin.query("INSERT INTO role_permissions (tenant_id, role_id, permission_id) VALUES ($1, $2, $3)", [tenantB, roleB, controlCenterPermission.rows[0]!.id]);
     await admin.query("INSERT INTO membership_roles (tenant_id, membership_id, role_id) VALUES ($1, $2, $3)", [tenantA, membershipA, roleA]);
     await admin.query("INSERT INTO membership_roles (tenant_id, membership_id, role_id) VALUES ($1, $2, $3)", [tenantB, membershipB, roleB]);
 
@@ -150,6 +161,32 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
       principalId: principalA,
       membershipId: membershipA,
       permissions: [{ resource: "freight", action: "read" }]
+    });
+  });
+
+  it("resolves Control Center read permission only for the tenant whose role was explicitly granted it", async () => {
+    const tenantAResolved = await withTenant(tenantA, (client) =>
+      resolveActiveMembership(
+        client,
+        { issuer: "https://issuer.example.test", subject: "subject-a" },
+        tenantA
+      )
+    );
+    const tenantBResolved = await withTenant(tenantB, (client) =>
+      resolveActiveMembership(
+        client,
+        { issuer: "https://issuer.example.test", subject: "subject-b" },
+        tenantB
+      )
+    );
+
+    expect(tenantAResolved?.permissions).not.toContainEqual({
+      resource: "iam",
+      action: "control_center.read"
+    });
+    expect(tenantBResolved?.permissions).toContainEqual({
+      resource: "iam",
+      action: "control_center.read"
     });
   });
 
