@@ -42,7 +42,7 @@ export default function AuthorizationProbe() {
     <section className={styles.probe} aria-labelledby="probe-title">
       <h2 id="probe-title">API authorization test</h2>
       <p className={styles.note}>
-        Runs a server-side request using the current session's access token. The token is never
+        Runs a server-side request using the current session&apos;s access token. The token is never
         sent to the browser or displayed. The API checks tenant membership and the
         <code> iam.control_center.read</code> permission.
       </p>
