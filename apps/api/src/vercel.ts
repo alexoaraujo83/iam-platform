@@ -4,7 +4,7 @@ import { authorize } from "@iam-platform/authorization";
 import { withAuthenticatedTenant } from "@iam-platform/database";
 import { createOidcVerifier } from "@iam-platform/identity";
 import type { IdentityProviderConfig } from "@iam-platform/contracts";
-import { createApiHandler, type ResolveTenantContext } from "./app.js";
+import { createApiHandler, type ResolveTenantContext, type RequiredTenantPermission } from "./app.js";
 import { normalizeOidcVerificationError } from "./oidc-error.js";
 
 function requiredEnv(name: string): string {
@@ -24,6 +24,7 @@ function positiveIntegerEnv(name: string, fallback: number): number {
 }
 
 let resolveTenantContext: ResolveTenantContext | undefined;
+let checkReadiness: (() => Promise<boolean>) | undefined;
 let initializationError: unknown;
 let initialized = false;
 
@@ -64,15 +65,23 @@ function initializeRuntime(): ResolveTenantContext {
     pool.on("error", () => {
       console.error(JSON.stringify({ level: "error", event: "database_idle_client_error" }));
     });
+    checkReadiness = async () => {
+      try {
+        await pool.query("SELECT 1");
+        return true;
+      } catch {
+        return false;
+      }
+    };
 
-    resolveTenantContext = async (accessToken, tenantId) =>
+    resolveTenantContext = async (accessToken, tenantId, requiredPermission?: RequiredTenantPermission) =>
       withAuthenticatedTenant(
         pool,
         verifyAccessToken,
         accessToken,
         tenantId,
-        { resource: "iam", action: "context.read" },
-        (authorizationContext, requiredPermission) => authorize(authorizationContext, requiredPermission),
+        requiredPermission ?? { resource: "iam", action: "context.read" },
+        (authorizationContext, permission) => authorize(authorizationContext, permission),
         async (_client, membership) => membership
       );
     return resolveTenantContext;
@@ -82,8 +91,17 @@ function initializeRuntime(): ResolveTenantContext {
   }
 }
 
-const handler = createApiHandler(async (accessToken, tenantId) =>
-  initializeRuntime()(accessToken, tenantId)
+const handler = createApiHandler(
+  async (accessToken, tenantId, requiredPermission) =>
+    initializeRuntime()(accessToken, tenantId, requiredPermission),
+  async () => {
+    try {
+      initializeRuntime();
+      return (await checkReadiness?.()) ?? false;
+    } catch {
+      return false;
+    }
+  }
 );
 
 export default function apiHandler(request: IncomingMessage, response: ServerResponse): void {
