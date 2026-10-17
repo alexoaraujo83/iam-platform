@@ -22,16 +22,19 @@ describe("handleAuth0Callback", () => {
     expect(response.status).toBe(400);
   });
 
-  it("returns 503 for provider discovery or network failures", async () => {
-    const response = await handleAuth0Callback(
-      { code: "discovery_error", name: "DiscoveryError" },
-      {}
-    );
+  it.each([
+    { code: "discovery_error", name: "DiscoveryError" },
+    {
+      code: "authorization_code_grant_request_error",
+      name: "AuthorizationCodeGrantRequestError"
+    }
+  ])("returns 503 for provider availability errors ($code)", async (error) => {
+    const response = await handleAuth0Callback(error, {});
     const body = await response.text();
 
     expect(response.status).toBe(503);
     expect(body).toContain("temporarily unavailable");
-    expect(body).not.toContain("discovery_error");
+    expect(body).not.toContain(error.code);
   });
 
   it("redirects successful callbacks to a same-origin return path", async () => {
