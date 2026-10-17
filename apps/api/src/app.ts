@@ -69,7 +69,9 @@ export function createApiHandler(resolveTenantContext: ResolveTenantContext): Ap
     }
 
     try {
-      const context = await resolveTenantContext(accessToken, tenantId, controlCenterMatch ? requiredPermission : undefined);
+      const context = controlCenterMatch
+        ? await resolveTenantContext(accessToken, tenantId, requiredPermission)
+        : await resolveTenantContext(accessToken, tenantId);
       if (!context) {
         sendJson(response, 403, { error: "active_membership_required" });
         return;
