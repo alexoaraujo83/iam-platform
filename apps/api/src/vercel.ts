@@ -4,7 +4,7 @@ import { authorize } from "@iam-platform/authorization";
 import { withAuthenticatedTenant } from "@iam-platform/database";
 import { createOidcVerifier } from "@iam-platform/identity";
 import type { IdentityProviderConfig } from "@iam-platform/contracts";
-import { createApiHandler, type ResolveTenantContext } from "./app.js";
+import { createApiHandler, type ResolveTenantContext, type RequiredTenantPermission } from "./app.js";
 import { normalizeOidcVerificationError } from "./oidc-error.js";
 
 function requiredEnv(name: string): string {
@@ -65,14 +65,14 @@ function initializeRuntime(): ResolveTenantContext {
       console.error(JSON.stringify({ level: "error", event: "database_idle_client_error" }));
     });
 
-    resolveTenantContext = async (accessToken, tenantId) =>
+    resolveTenantContext = async (accessToken, tenantId, requiredPermission?: RequiredTenantPermission) =>
       withAuthenticatedTenant(
         pool,
         verifyAccessToken,
         accessToken,
         tenantId,
-        { resource: "iam", action: "context.read" },
-        (authorizationContext, requiredPermission) => authorize(authorizationContext, requiredPermission),
+        requiredPermission ?? { resource: "iam", action: "context.read" },
+        (authorizationContext, permission) => authorize(authorizationContext, permission),
         async (_client, membership) => membership
       );
     return resolveTenantContext;
@@ -82,8 +82,8 @@ function initializeRuntime(): ResolveTenantContext {
   }
 }
 
-const handler = createApiHandler(async (accessToken, tenantId) =>
-  initializeRuntime()(accessToken, tenantId)
+const handler = createApiHandler(async (accessToken, tenantId, requiredPermission) =>
+  initializeRuntime()(accessToken, tenantId, requiredPermission)
 );
 
 export default function apiHandler(request: IncomingMessage, response: ServerResponse): void {
