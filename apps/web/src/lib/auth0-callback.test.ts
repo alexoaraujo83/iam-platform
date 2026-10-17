@@ -1,0 +1,65 @@
+import { describe, expect, it } from "vitest";
+import { handleAuth0Callback } from "./auth0-callback";
+
+describe("handleAuth0Callback", () => {
+  it("returns a controlled 400 for missing state without exposing SDK details", async () => {
+    const response = await handleAuth0Callback(
+      { code: "missing_state", name: "MissingStateError" },
+      {}
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).not.toContain("MissingStateError");
+  });
+
+  it("returns a controlled 400 for invalid state", async () => {
+    const response = await handleAuth0Callback(
+      { code: "invalid_state", name: "InvalidStateError" },
+      { appBaseUrl: "https://iam-platform-web-preview.vercel.app" }
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  it("returns 503 for provider discovery or network failures", async () => {
+    const response = await handleAuth0Callback(
+      { code: "discovery_error", name: "DiscoveryError" },
+      {}
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.text()).toContain("temporarily unavailable");
+    expect(await response.text()).not.toContain("discovery_error");
+  });
+
+  it("redirects successful callbacks to a same-origin return path", async () => {
+    const response = await handleAuth0Callback(null, {
+      appBaseUrl: "https://iam-platform-web-preview.vercel.app",
+      returnTo: "/control-center"
+    });
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://iam-platform-web-preview.vercel.app/control-center"
+    );
+  });
+
+  it("rejects an external returnTo target", async () => {
+    const response = await handleAuth0Callback(null, {
+      appBaseUrl: "https://iam-platform-web-preview.vercel.app",
+      returnTo: "https://attacker.example/"
+    });
+
+    expect(response.headers.get("location")).toBe(
+      "https://iam-platform-web-preview.vercel.app/"
+    );
+  });
+
+  it("does not redirect when the base URL is missing", async () => {
+    const response = await handleAuth0Callback(null, {});
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+});
