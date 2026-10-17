@@ -28,7 +28,7 @@ async function SessionDiagnostics() {
     return (
       <div className={styles.session}>
         <h2>Authentication required</h2>
-        <p>No active application session was found. Sign in with Auth0, then return here.</p>
+        <p>No active application session was found. Sign in with Auth0 to run the server-side diagnostic tests.</p>
         <a className={styles.button} href="/auth/login?returnTo=%2Fdiagnostics">Sign in with Auth0</a>
       </div>
     );
@@ -54,7 +54,6 @@ async function SessionDiagnostics() {
         identity, and an unverified email must not be treated as verified. Tenant access is
         resolved from the IAM database, not from user_metadata or app_metadata.
       </p>
-      <CallbackProbe />
       <AuthorizationProbe />
       <div className={styles.actions}>
         <Link className={styles.secondary} href="/">Home</Link>
@@ -86,6 +85,7 @@ export default function AuthDiagnosticsPage() {
         <Suspense fallback={<SessionDiagnosticsFallback />}>
           <SessionDiagnostics />
         </Suspense>
+        <CallbackProbe />
         <p className={styles.footer}>
           Security: this page never renders access tokens, ID tokens, cookies, client secrets, or raw session contents.
           The API test runs server-side and returns only the authorization outcome and non-secret IDs.
