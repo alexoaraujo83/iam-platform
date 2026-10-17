@@ -37,11 +37,27 @@ describe("handleAuth0Callback", () => {
     expect(body).not.toContain(error.code);
   });
 
+  it("does not redirect when the callback has no authenticated session", async () => {
+    const response = await handleAuth0Callback(
+      null,
+      { appBaseUrl: "https://iam-platform-web-preview.vercel.app" },
+      null
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
   it("redirects successful callbacks to a same-origin return path", async () => {
-    const response = await handleAuth0Callback(null, {
-      appBaseUrl: "https://iam-platform-web-preview.vercel.app",
-      returnTo: "/control-center"
-    });
+    const response = await handleAuth0Callback(
+      null,
+      {
+        appBaseUrl: "https://iam-platform-web-preview.vercel.app",
+        returnTo: "/control-center"
+      },
+      { user: { sub: "auth0|test" } }
+    );
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(
@@ -50,10 +66,14 @@ describe("handleAuth0Callback", () => {
   });
 
   it("rejects an external returnTo target", async () => {
-    const response = await handleAuth0Callback(null, {
-      appBaseUrl: "https://iam-platform-web-preview.vercel.app",
-      returnTo: "https://attacker.example/"
-    });
+    const response = await handleAuth0Callback(
+      null,
+      {
+        appBaseUrl: "https://iam-platform-web-preview.vercel.app",
+        returnTo: "https://attacker.example/"
+      },
+      { user: { sub: "auth0|test" } }
+    );
 
     expect(response.headers.get("location")).toBe(
       "https://iam-platform-web-preview.vercel.app/"
@@ -61,7 +81,11 @@ describe("handleAuth0Callback", () => {
   });
 
   it("does not redirect when the base URL is missing", async () => {
-    const response = await handleAuth0Callback(null, {});
+    const response = await handleAuth0Callback(
+      null,
+      {},
+      { user: { sub: "auth0|test" } }
+    );
 
     expect(response.status).toBe(500);
     expect(response.headers.get("cache-control")).toBe("no-store");
