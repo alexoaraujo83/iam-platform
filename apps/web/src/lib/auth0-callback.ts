@@ -20,23 +20,20 @@ export async function handleAuth0Callback(
 ): Promise<NextResponse> {
   if (error) {
     const identifier = `${error.code ?? ""} ${error.name ?? ""}`;
-    const isStateError = /(missing|invalid).*state|state.*(missing|invalid)/i.test(
-      identifier
-    );
     const isProviderUnavailable =
       /(discovery|network|fetch|timeout|unavailable|econn|enotfound|eai_again|temporar)/i.test(
         identifier
       );
 
-    const status = isProviderUnavailable ? 503 : isStateError ? 400 : 400;
-    const message = isProviderUnavailable
-      ? "Authentication provider is temporarily unavailable. Please try again."
-      : "Authentication callback is invalid or could not be completed.";
-
-    return new NextResponse(message, {
-      status,
-      headers: { "Cache-Control": "no-store" }
-    });
+    return new NextResponse(
+      isProviderUnavailable
+        ? "Authentication provider is temporarily unavailable. Please try again."
+        : "Authentication callback is invalid or could not be completed.",
+      {
+        status: isProviderUnavailable ? 503 : 400,
+        headers: { "Cache-Control": "no-store" }
+      }
+    );
   }
 
   if (!context.appBaseUrl) {
