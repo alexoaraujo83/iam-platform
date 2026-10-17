@@ -18,6 +18,7 @@ export type ResolveTenantContext = (
   tenantId: string,
   requiredPermission?: RequiredTenantPermission
 ) => Promise<TenantContextResponse | null>;
+export type CheckReadiness = () => Promise<boolean>;
 export type ApiRequestHandler = (request: IncomingMessage, response: ServerResponse) => void;
 
 const CONTEXT_PERMISSION: RequiredTenantPermission = { resource: "iam", action: "context.read" };
@@ -32,7 +33,10 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(JSON.stringify(body));
 }
 
-export function createApiHandler(resolveTenantContext: ResolveTenantContext): ApiRequestHandler {
+export function createApiHandler(
+  resolveTenantContext: ResolveTenantContext,
+  checkReadiness: CheckReadiness = async () => true
+): ApiRequestHandler {
   async function routeRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? "/", "http://localhost");
     const routePath = url.pathname === "/api/index" ? (url.searchParams.get("path") ?? "/") : url.pathname;
@@ -40,9 +44,18 @@ export function createApiHandler(resolveTenantContext: ResolveTenantContext): Ap
       sendJson(response, 200, { status: "ok" });
       return;
     }
+    if (request.method === "GET" && routePath === "/health/ready") {
+      try {
+        const ready = await checkReadiness();
+        sendJson(response, ready ? 200 : 503, { status: ready ? "ready" : "not_ready" });
+      } catch {
+        sendJson(response, 503, { status: "not_ready" });
+      }
+      return;
+    }
 
-    const controlCenterMatch = /^\/v1\/tenants\/([^/]+)\/control-center$/.exec(routePath);
-    const contextMatch = /^\/v1\/tenants\/([^/]+)\/context$/.exec(routePath);
+    const controlCenterMatch = /^\\/v1\\/tenants\\/([^/]+)\\/control-center$/.exec(routePath);
+    const contextMatch = /^\\/v1\\/tenants\\/([^/]+)\\/context$/.exec(routePath);
     const match = controlCenterMatch ?? contextMatch;
     if (request.method !== "GET" || !match?.[1]) {
       sendJson(response, 404, { error: "not_found" });
@@ -112,6 +125,9 @@ export function createApiHandler(resolveTenantContext: ResolveTenantContext): Ap
   };
 }
 
-export function createApiServer(resolveTenantContext: ResolveTenantContext): Server {
-  return createServer(createApiHandler(resolveTenantContext));
+export function createApiServer(
+  resolveTenantContext: ResolveTenantContext,
+  checkReadiness: CheckReadiness = async () => true
+): Server {
+  return createServer(createApiHandler(resolveTenantContext, checkReadiness));
 }
