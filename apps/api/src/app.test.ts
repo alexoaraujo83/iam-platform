@@ -145,6 +145,55 @@ describe("IAM HTTP API", () => {
     expect(resolver).not.toHaveBeenCalled();
   });
 
+  it("requires the control-center permission on the control-center endpoint", async () => {
+    const controlCenterContext: TenantContextResponse = {
+      ...context,
+      permissions: [{ resource: "iam", action: "control_center.read" }]
+    };
+    const resolver = vi.fn<ResolveTenantContext>().mockResolvedValue(controlCenterContext);
+    const response = await requestApi(
+      resolver,
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center",
+      { authorization: "Bearer valid-token" }
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(controlCenterContext);
+    expect(resolver).toHaveBeenCalledWith(
+      "valid-token",
+      "11111111-1111-4111-8111-111111111111",
+      { resource: "iam", action: "control_center.read" }
+    );
+  });
+
+  it("denies control-center access when the required permission is missing", async () => {
+    const resolver = vi.fn<ResolveTenantContext>().mockRejectedValue(new Error("authorization_denied"));
+    const response = await requestApi(
+      resolver,
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center",
+      { authorization: "Bearer valid-token" }
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "permission_denied" });
+    expect(resolver).toHaveBeenCalledWith(
+      "valid-token",
+      "11111111-1111-4111-8111-111111111111",
+      { resource: "iam", action: "control_center.read" }
+    );
+  });
+
+  it("denies control-center access when the tenant has no active membership", async () => {
+    const response = await requestApi(
+      async () => null,
+      "/v1/tenants/22222222-2222-4222-8222-222222222222/control-center",
+      { authorization: "Bearer valid-token" }
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "active_membership_required" });
+  });
+
   it("returns 404 for unknown routes", async () => {
     const response = await requestApi(async () => context, "/unknown");
     expect(response.status).toBe(404);
