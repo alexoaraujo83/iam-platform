@@ -54,8 +54,8 @@ export function createApiHandler(
       return;
     }
 
-    const controlCenterMatch = /^\\/v1\\/tenants\\/([^/]+)\\/control-center$/.exec(routePath);
-    const contextMatch = /^\\/v1\\/tenants\\/([^/]+)\\/context$/.exec(routePath);
+    const controlCenterMatch = /^\/v1\/tenants\/([^/]+)\/control-center$/.exec(routePath);
+    const contextMatch = /^\/v1\/tenants\/([^/]+)\/context$/.exec(routePath);
     const match = controlCenterMatch ?? contextMatch;
     if (request.method !== "GET" || !match?.[1]) {
       sendJson(response, 404, { error: "not_found" });
