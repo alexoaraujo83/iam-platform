@@ -13,7 +13,7 @@ type CallbackResult = {
     label: string;
     expectedStatus: number;
     actualStatus: number;
-    status: "pass" | "fail";
+    status: "pass" | "fail" | "blocked";
     detail: string;
   }[];
 };
@@ -43,13 +43,30 @@ export default function CallbackProbe() {
             label: "Endpoint de diagnóstico de callback",
             expectedStatus: 200,
             actualStatus: response.status,
-            status: "fail",
+            status: "blocked",
             detail: "Resposta não JSON; resultado inconclusivo.",
           }],
         });
         return;
       }
-      const data = (await response.json()) as CallbackResult;
+      const data = (await response.json()) as Partial<CallbackResult> & { code?: string };
+      if (response.status === 401 && data.code === "login_required") {
+        setResult({
+          ok: false,
+          outcome: "callback_checks_not_run",
+          scope: "synthetic_handler_checks",
+          note: "Entre com Auth0 e execute novamente. A bateria está visível, mas exige uma sessão autenticada.",
+          checks: [{
+            id: "session",
+            label: "Sessão autenticada necessária para executar os testes",
+            expectedStatus: 200,
+            actualStatus: 401,
+            status: "blocked",
+            detail: "A API de diagnóstico recusou corretamente a execução sem sessão.",
+          }],
+        });
+        return;
+      }
       if (!response.ok) {
         setResult({
           ok: false,
@@ -61,13 +78,13 @@ export default function CallbackProbe() {
             label: "Endpoint de diagnóstico de callback",
             expectedStatus: 200,
             actualStatus: response.status,
-            status: "fail",
-            detail: "A aplicação recusou a execução; confira se a sessão está ativa.",
+            status: "blocked",
+            detail: "A aplicação recusou a execução; confira a sessão e a proteção da plataforma.",
           }],
         });
         return;
       }
-      setResult(data);
+      setResult(data as CallbackResult);
     } catch {
       setResult({
         ok: false,
@@ -79,7 +96,7 @@ export default function CallbackProbe() {
           label: "Endpoint de diagnóstico de callback",
           expectedStatus: 200,
           actualStatus: 0,
-          status: "fail",
+          status: "blocked",
           detail: "Falha de rede; nenhum resultado de callback foi confirmado.",
         }],
       });
@@ -109,13 +126,15 @@ export default function CallbackProbe() {
               ? "Todos os testes sintéticos de callback passaram"
               : result.outcome === "callback_checks_failed"
                 ? "Falha em um ou mais testes de callback"
-                : "Resultado inconclusivo"}
+                : result.outcome === "callback_checks_not_run"
+                  ? "Autenticação necessária — testes ainda não executados"
+                  : "Resultado inconclusivo"}
           </strong>
           <p className={styles.note}>{result.note}</p>
           <ul className={styles.permissionList}>
             {result.checks.map((check) => (
               <li key={check.id}>
-                <strong>{check.status === "pass" ? "PASS" : "FAIL"}</strong> — {check.label}
+                <strong>{check.status === "pass" ? "PASS" : check.status === "fail" ? "FAIL" : "INCONCLUSIVO"}</strong> — {check.label}
                 <div className={styles.note}>
                   Esperado: HTTP {check.expectedStatus}; recebido: {check.actualStatus ? `HTTP ${check.actualStatus}` : "sem resposta"}
                   {" — "}{check.detail}
