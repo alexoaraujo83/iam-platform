@@ -1,6 +1,11 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extractBearerToken } from "@iam-platform/identity";
 
+export interface RequiredTenantPermission {
+  readonly resource: string;
+  readonly action: string;
+}
+
 export interface TenantContextResponse {
   readonly tenantId: string;
   readonly principalId: string;
@@ -8,8 +13,16 @@ export interface TenantContextResponse {
   readonly permissions: readonly { readonly resource: string; readonly action: string }[];
 }
 
-export type ResolveTenantContext = (accessToken: string, tenantId: string) => Promise<TenantContextResponse | null>;
+export type ResolveTenantContext = (
+  accessToken: string,
+  tenantId: string,
+  requiredPermission?: RequiredTenantPermission
+) => Promise<TenantContextResponse | null>;
+export type CheckReadiness = () => Promise<boolean>;
 export type ApiRequestHandler = (request: IncomingMessage, response: ServerResponse) => void;
+
+const CONTEXT_PERMISSION: RequiredTenantPermission = { resource: "iam", action: "context.read" };
+const CONTROL_CENTER_PERMISSION: RequiredTenantPermission = { resource: "iam", action: "control_center.read" };
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, {
@@ -20,7 +33,10 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.end(JSON.stringify(body));
 }
 
-export function createApiHandler(resolveTenantContext: ResolveTenantContext): ApiRequestHandler {
+export function createApiHandler(
+  resolveTenantContext: ResolveTenantContext,
+  checkReadiness: CheckReadiness = async () => false
+): ApiRequestHandler {
   async function routeRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? "/", "http://localhost");
     const routePath = url.pathname === "/api/index" ? (url.searchParams.get("path") ?? "/") : url.pathname;
@@ -28,13 +44,25 @@ export function createApiHandler(resolveTenantContext: ResolveTenantContext): Ap
       sendJson(response, 200, { status: "ok" });
       return;
     }
+    if (request.method === "GET" && routePath === "/health/ready") {
+      try {
+        const ready = await checkReadiness();
+        sendJson(response, ready ? 200 : 503, { status: ready ? "ready" : "not_ready" });
+      } catch {
+        sendJson(response, 503, { status: "not_ready" });
+      }
+      return;
+    }
 
-    const match = /^\/v1\/tenants\/([^/]+)\/context$/.exec(routePath);
+    const controlCenterMatch = /^\/v1\/tenants\/([^/]+)\/control-center$/.exec(routePath);
+    const contextMatch = /^\/v1\/tenants\/([^/]+)\/context$/.exec(routePath);
+    const match = controlCenterMatch ?? contextMatch;
     if (request.method !== "GET" || !match?.[1]) {
       sendJson(response, 404, { error: "not_found" });
       return;
     }
 
+    const requiredPermission = controlCenterMatch ? CONTROL_CENTER_PERMISSION : CONTEXT_PERMISSION;
     const accessToken = extractBearerToken(request.headers.authorization);
     if (!accessToken) {
       sendJson(response, 401, { error: "invalid_or_missing_bearer_token" });
@@ -54,7 +82,9 @@ export function createApiHandler(resolveTenantContext: ResolveTenantContext): Ap
     }
 
     try {
-      const context = await resolveTenantContext(accessToken, tenantId);
+      const context = controlCenterMatch
+        ? await resolveTenantContext(accessToken, tenantId, requiredPermission)
+        : await resolveTenantContext(accessToken, tenantId);
       if (!context) {
         sendJson(response, 403, { error: "active_membership_required" });
         return;
@@ -95,6 +125,9 @@ export function createApiHandler(resolveTenantContext: ResolveTenantContext): Ap
   };
 }
 
-export function createApiServer(resolveTenantContext: ResolveTenantContext): Server {
-  return createServer(createApiHandler(resolveTenantContext));
+export function createApiServer(
+  resolveTenantContext: ResolveTenantContext,
+  checkReadiness: CheckReadiness = async () => false
+): Server {
+  return createServer(createApiHandler(resolveTenantContext, checkReadiness));
 }
