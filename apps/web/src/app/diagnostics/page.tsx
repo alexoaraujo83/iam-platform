@@ -3,6 +3,7 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { auth0 } from "../../lib/auth0";
 import AuthorizationProbe from "./authorization-probe";
+import CallbackProbe from "./callback-probe";
 import styles from "../page.module.css";
 
 export const metadata = {
@@ -53,6 +54,7 @@ async function SessionDiagnostics() {
         identity, and an unverified email must not be treated as verified. Tenant access is
         resolved from the IAM database, not from user_metadata or app_metadata.
       </p>
+      <CallbackProbe />
       <AuthorizationProbe />
       <div className={styles.actions}>
         <Link className={styles.secondary} href="/">Home</Link>
