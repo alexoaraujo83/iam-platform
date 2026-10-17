@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth0 } from "../../../../lib/auth0";
+import { auth0 } from "../../../lib/auth0";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
