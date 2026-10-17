@@ -27,10 +27,11 @@ describe("handleAuth0Callback", () => {
       { code: "discovery_error", name: "DiscoveryError" },
       {}
     );
+    const body = await response.text();
 
     expect(response.status).toBe(503);
-    expect(await response.text()).toContain("temporarily unavailable");
-    expect(await response.text()).not.toContain("discovery_error");
+    expect(body).toContain("temporarily unavailable");
+    expect(body).not.toContain("discovery_error");
   });
 
   it("redirects successful callbacks to a same-origin return path", async () => {
