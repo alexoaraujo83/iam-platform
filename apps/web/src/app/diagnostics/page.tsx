@@ -3,6 +3,7 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { auth0 } from "../../lib/auth0";
 import AuthorizationProbe from "./authorization-probe";
+import CallbackProbe from "./callback-probe";
 import styles from "../page.module.css";
 
 export const metadata = {
@@ -27,7 +28,7 @@ async function SessionDiagnostics() {
     return (
       <div className={styles.session}>
         <h2>Authentication required</h2>
-        <p>No active application session was found. Sign in with Auth0, then return here.</p>
+        <p>No active application session was found. Sign in with Auth0 to run the server-side diagnostic tests.</p>
         <a className={styles.button} href="/auth/login?returnTo=%2Fdiagnostics">Sign in with Auth0</a>
       </div>
     );
@@ -84,6 +85,7 @@ export default function AuthDiagnosticsPage() {
         <Suspense fallback={<SessionDiagnosticsFallback />}>
           <SessionDiagnostics />
         </Suspense>
+        <CallbackProbe />
         <p className={styles.footer}>
           Security: this page never renders access tokens, ID tokens, cookies, client secrets, or raw session contents.
           The API test runs server-side and returns only the authorization outcome and non-secret IDs.
