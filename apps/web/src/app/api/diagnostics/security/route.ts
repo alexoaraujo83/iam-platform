@@ -64,6 +64,7 @@ export async function POST(request: NextRequest) {
     tenantId: string,
     authorization: string | null,
     expectedStatus: number,
+    expectedError?: string,
     requireControlCenterPermission = false,
   ): Promise<void> {
     try {
@@ -82,7 +83,8 @@ export async function POST(request: NextRequest) {
       const permissionGranted = permissions.some((permission) =>
         permission?.resource === "iam" && permission?.action === "control_center.read",
       );
-      const expectedBehavior = response.status === expectedStatus &&
+      const codeMatches = !expectedError || payload.error === expectedError;
+      const expectedBehavior = response.status === expectedStatus && codeMatches &&
         (!requireControlCenterPermission || permissionGranted);
       checks.push({
         id,
@@ -94,36 +96,38 @@ export async function POST(request: NextRequest) {
           ? "Resposta não JSON: a proteção da plataforma pode ter interceptado a chamada; resultado não conclusivo."
           : response.status !== expectedStatus
             ? typeof payload.error === "string" ? payload.error : "Status inesperado."
-            : requireControlCenterPermission && !permissionGranted
-              ? "HTTP 200 sem a permissão iam.control_center.read na resposta."
-              : "O endpoint retornou o status e as permissões esperados.",
+            : !codeMatches
+              ? `Código inesperado: ${typeof payload.error === "string" ? payload.error : "ausente"}.`
+              : requireControlCenterPermission && !permissionGranted
+                ? "HTTP 200 sem a permissão iam.control_center.read na resposta."
+                : "O endpoint retornou o status e o código de negação esperados.",
       });
     } catch {
       checks.push({ id, label, expectedStatus, status: "blocked", detail: "API indisponível ou inacessível; teste inconclusivo." });
     }
   }
 
-  await probe("valid-session", "Sessão atual deve ser autorizada e ter iam.control_center.read", primaryTenantId, `Bearer ${accessToken}`, 200, true);
-  await probe("missing-token", "Token ausente deve retornar 401", primaryTenantId, null, 401);
-  await probe("malformed-token", "Token malformado deve retornar 401", primaryTenantId, "Bearer invalid.diagnostic.token", 401);
+  await probe("valid-session", "Sessão atual deve ser autorizada e ter iam.control_center.read", primaryTenantId, `Bearer ${accessToken}`, 200, undefined, true);
+  await probe("missing-token", "Token ausente deve retornar 401", primaryTenantId, null, 401, "invalid_or_missing_bearer_token");
+  await probe("malformed-token", "Token malformado deve retornar 401", primaryTenantId, "Bearer invalid.diagnostic.token", 401, "invalid_access_token");
 
   const noMembershipTenantId = process.env.IAM_DIAGNOSTICS_NO_MEMBERSHIP_TENANT_ID?.trim();
   if (isUuid(noMembershipTenantId)) {
-    await probe("no-membership", "Tenant sem associação ativa deve retornar 403", noMembershipTenantId, `Bearer ${accessToken}`, 403);
+    await probe("no-membership", "Tenant sem associação ativa deve retornar 403", noMembershipTenantId, `Bearer ${accessToken}`, 403, "active_membership_required");
   } else {
     checks.push({ id: "no-membership", label: "Tenant sem associação ativa deve retornar 403", expectedStatus: 403, status: "not_configured", detail: "Configure IAM_DIAGNOSTICS_NO_MEMBERSHIP_TENANT_ID com um UUID de tenant de teste sem associação para este usuário." });
   }
 
   const noPermissionTenantId = process.env.IAM_DIAGNOSTICS_NO_PERMISSION_TENANT_ID?.trim();
   if (isUuid(noPermissionTenantId)) {
-    await probe("missing-permission", "Tenant sem a permissão exigida deve retornar 403", noPermissionTenantId, `Bearer ${accessToken}`, 403);
+    await probe("missing-permission", "Tenant sem a permissão exigida deve retornar 403", noPermissionTenantId, `Bearer ${accessToken}`, 403, "permission_denied");
   } else {
     checks.push({ id: "missing-permission", label: "Tenant sem a permissão exigida deve retornar 403", expectedStatus: 403, status: "not_configured", detail: "Configure IAM_DIAGNOSTICS_NO_PERMISSION_TENANT_ID com uma associação ativa que não tenha iam.control_center.read." });
   }
 
   const otherTenantId = process.env.IAM_DIAGNOSTICS_OTHER_TENANT_ID?.trim();
   if (isUuid(otherTenantId)) {
-    await probe("cross-tenant", "Acesso a outro tenant deve ser negado (403)", otherTenantId, `Bearer ${accessToken}`, 403);
+    await probe("cross-tenant", "Acesso a outro tenant deve ser negado (403)", otherTenantId, `Bearer ${accessToken}`, 403, "active_membership_required");
   } else {
     checks.push({ id: "cross-tenant", label: "Acesso a outro tenant deve ser negado (403)", expectedStatus: 403, status: "not_configured", detail: "Configure IAM_DIAGNOSTICS_OTHER_TENANT_ID com um tenant isolado, pertencente a outra identidade e sem associação para a sessão atual." });
   }
@@ -134,7 +138,7 @@ export async function POST(request: NextRequest) {
     if (exp === null || exp >= Math.floor(Date.now() / 1000)) {
       checks.push({ id: "expired-token", label: "Token expirado deve retornar 401", expectedStatus: 401, status: "fail", detail: "O token configurado não possui exp válido já vencido; nenhum pedido foi enviado." });
     } else {
-      await probe("expired-token", "Token expirado deve retornar 401", primaryTenantId, `Bearer ${expiredToken}`, 401);
+      await probe("expired-token", "Token expirado deve retornar 401", primaryTenantId, `Bearer ${expiredToken}`, 401, "invalid_access_token");
     }
   } else {
     checks.push({ id: "expired-token", label: "Token expirado deve retornar 401", expectedStatus: 401, status: "not_configured", detail: "Configure IAM_DIAGNOSTICS_EXPIRED_ACCESS_TOKEN apenas com um token de teste expirado; ele será usado somente no servidor e nunca será retornado." });
