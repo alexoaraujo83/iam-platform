@@ -64,6 +64,7 @@ export async function POST(request: NextRequest) {
     tenantId: string,
     authorization: string | null,
     expectedStatus: number,
+    requireControlCenterPermission = false,
   ): Promise<void> {
     try {
       const headers: Record<string, string> = { ...commonHeaders };
@@ -77,23 +78,32 @@ export async function POST(request: NextRequest) {
         ? await response.json().catch(() => ({})) as Record<string, unknown>
         : {};
       const isApplicationResponse = contentType.includes("application/json");
+      const permissions = Array.isArray(payload.permissions) ? payload.permissions as { resource?: unknown; action?: unknown }[] : [];
+      const permissionGranted = permissions.some((permission) =>
+        permission?.resource === "iam" && permission?.action === "control_center.read",
+      );
+      const expectedBehavior = response.status === expectedStatus &&
+        (!requireControlCenterPermission || permissionGranted);
       checks.push({
         id,
         label,
         expectedStatus,
         actualStatus: response.status,
-        status: !isApplicationResponse ? "blocked" : response.status === expectedStatus ? "pass" : "fail",
+        status: !isApplicationResponse ? "blocked" : expectedBehavior ? "pass" : "fail",
         detail: !isApplicationResponse
           ? "Resposta não JSON: a proteção da plataforma pode ter interceptado a chamada; resultado não conclusivo."
-          : response.status === expectedStatus
-            ? "O endpoint retornou o status esperado."
-            : typeof payload.error === "string" ? payload.error : "Status inesperado.",
+          : response.status !== expectedStatus
+            ? typeof payload.error === "string" ? payload.error : "Status inesperado."
+            : requireControlCenterPermission && !permissionGranted
+              ? "HTTP 200 sem a permissão iam.control_center.read na resposta."
+              : "O endpoint retornou o status e as permissões esperados.",
       });
     } catch {
       checks.push({ id, label, expectedStatus, status: "blocked", detail: "API indisponível ou inacessível; teste inconclusivo." });
     }
   }
 
+  await probe("valid-session", "Sessão atual deve ser autorizada e ter iam.control_center.read", primaryTenantId, `Bearer ${accessToken}`, 200, true);
   await probe("missing-token", "Token ausente deve retornar 401", primaryTenantId, null, 401);
   await probe("malformed-token", "Token malformado deve retornar 401", primaryTenantId, "Bearer invalid.diagnostic.token", 401);
 
