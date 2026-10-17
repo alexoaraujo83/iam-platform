@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { connection } from "next/server";
 import { auth0 } from "../../lib/auth0";
 import AuthorizationProbe from "./authorization-probe";
@@ -54,7 +55,7 @@ async function SessionDiagnostics() {
       </p>
       <AuthorizationProbe />
       <div className={styles.actions}>
-        <a className={styles.secondary} href="/">Home</a>
+        <Link className={styles.secondary} href="/">Home</Link>
         <a className={styles.secondary} href="/auth/logout">Sign out</a>
       </div>
     </div>
