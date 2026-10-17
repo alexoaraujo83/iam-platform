@@ -16,7 +16,8 @@ type CallbackContext = {
  */
 export async function handleAuth0Callback(
   error: CallbackError | null,
-  context: CallbackContext
+  context: CallbackContext,
+  session: object | null = null
 ): Promise<NextResponse> {
   if (error) {
     const identifier = `${error.code ?? ""} ${error.name ?? ""}`;
@@ -34,6 +35,13 @@ export async function handleAuth0Callback(
         headers: { "Cache-Control": "no-store" }
       }
     );
+  }
+
+  if (!session) {
+    return new NextResponse("Authentication callback is invalid or could not be completed.", {
+      status: 400,
+      headers: { "Cache-Control": "no-store" }
+    });
   }
 
   if (!context.appBaseUrl) {
