@@ -34,7 +34,7 @@ DO $$
 DECLARE
   runtime_role text;
 BEGIN
-  FOREACH runtime_role IN ARRAY ARRAY['iam_runtime', 'iam_app_runtime']
+  FOREACH runtime_role IN ARRAY ARRAY['iam_app_runtime']
   LOOP
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = runtime_role) THEN
       EXECUTE format('REVOKE ALL ON global_security_events FROM %I', runtime_role);
