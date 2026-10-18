@@ -60,10 +60,23 @@ jobs:
       # Install the pinned pnpm CLI directly to avoid the runner's legacy PNPM_HOME layout.
       - run: npm install --global pnpm@12.12.1
       - run: pnpm --version
-      - run: pnpm install --frozen-lockfile
+      - name: Install locked dependencies
+        id: frozen_install
+        run: pnpm install --frozen-lockfile
       - name: Audit locked dependencies for high and critical vulnerabilities
+        id: dependency_audit
         run: pnpm audit --audit-level high
-      - run: pnpm typecheck
-      - run: pnpm lint
-      - run: pnpm build
-      - run: pnpm test
+      # Keep collecting independent quality evidence when the audit gate fails.
+      # The job remains failed, so this does not bypass the security gate.
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.frozen_install.outcome == 'success' }}
+        run: pnpm typecheck
+      - name: Lint
+        if: ${{ !cancelled() && steps.frozen_install.outcome == 'success' }}
+        run: pnpm lint
+      - name: Build
+        if: ${{ !cancelled() && steps.frozen_install.outcome == 'success' }}
+        run: pnpm build
+      - name: Test
+        if: ${{ !cancelled() && steps.frozen_install.outcome == 'success' }}
+        run: pnpm test
