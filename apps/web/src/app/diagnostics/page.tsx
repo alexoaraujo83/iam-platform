@@ -3,12 +3,11 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { auth0 } from "../../lib/auth0";
 import AuthorizationProbe from "./authorization-probe";
-import CallbackProbe from "./callback-probe";
 import styles from "../page.module.css";
 
 export const metadata = {
-  title: "Auth diagnostics | IAM Platform",
-  description: "Safe diagnostics for the current Auth0 session and API authorization.",
+  title: "Diagnóstico de autenticação | IAM Platform",
+  description: "Diagnóstico seguro da sessão e da autorização na API IAM.",
 };
 
 function Field({ label, value }: { label: string; value: string }) {
@@ -27,32 +26,48 @@ async function SessionDiagnostics() {
   if (!session) {
     return (
       <div className={styles.session}>
-        <h2>Authentication required</h2>
-        <p>No active application session was found. Sign in with Auth0 to run the server-side diagnostic tests.</p>
-        <a className={styles.button} href="/auth/login?returnTo=%2Fdiagnostics">Sign in with Auth0</a>
+        <h2>Autenticação necessária</h2>
+        <p>Nenhuma sessão ativa foi encontrada. Entre pelo Auth0 e volte a esta página.</p>
+        <a className={styles.button} href="/auth/login?returnTo=%2Fdiagnostics">Entrar com Auth0</a>
       </div>
     );
   }
 
+  const sessionMetadata = session as unknown as Record<string, unknown>;
+  const tokenSet = sessionMetadata.tokenSet && typeof sessionMetadata.tokenSet === "object"
+    ? sessionMetadata.tokenSet as Record<string, unknown>
+    : {};
+  const formatExpiry = (value: unknown) => typeof value === "number" && Number.isFinite(value)
+    ? new Date(value > 10_000_000_000 ? value : value * 1000).toISOString()
+    : "Não disponível nos metadados da sessão";
+  const sessionExpiresAt = formatExpiry(sessionMetadata.expiresAt);
+  const accessTokenExpiresAt = formatExpiry(tokenSet.expiresAt ?? tokenSet.expires_at);
+
   return (
     <div className={styles.session}>
-      <h2>Application session detected</h2>
+      <h2>Sessão da aplicação detectada</h2>
       <p className={styles.note}>
-        A web session proves sign-in only. Use the API test below to verify token acceptance,
-        active tenant membership, and the required permission.
+        Uma sessão web comprova apenas o login. Use o teste da API abaixo para verificar a aceitação do token, a associação ativa ao tenant e a permissão exigida.
       </p>
       <dl className={styles.fields}>
-        <Field label="Web session" value="Present" />
-        <Field label="Subject (sub)" value={session.user.sub ?? "Not present in session"} />
-        <Field label="Issuer configured" value={process.env.OIDC_ISSUER ?? "Not configured in web environment"} />
-        <Field label="Email verification claim" value={typeof session.user.email_verified === "boolean" ? String(session.user.email_verified) : "Not present"} />
-        <Field label="Display name" value={session.user.name ?? "Not present"} />
-        <Field label="Email" value={session.user.email ?? "Not present"} />
+        <Field label="Sessão web" value="Presente" />
+        <Field label="Sujeito da sessão (sub)" value={session.user.sub ?? "Não presente na sessão"} />
+        <Field label="Emissor configurado (não é prova de validação)" value={process.env.OIDC_ISSUER ?? "Não configurado no ambiente web"} />
+        <Field label="Audiência solicitada (configuração)" value={process.env.AUTH0_AUDIENCE ?? "Não configurada"} />
+        <Field label="Algoritmos permitidos (configuração)" value={process.env.OIDC_ALLOWED_ALGORITHMS ?? "Não configurados"} />
+        <Field label="Expiração da sessão web (UTC)" value={sessionExpiresAt} />
+        <Field label="Expiração do token de acesso (UTC)" value={accessTokenExpiresAt} />
+        <Field label="Ambiente" value={process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "Não informado"} />
+        <Field label="Commit web" value={process.env.VERCEL_GIT_COMMIT_SHA ?? "Não informado"} />
+        <Field label="E-mail verificado" value={typeof session.user.email_verified === "boolean" ? (session.user.email_verified ? "Sim" : "Não") : "Não informado"} />
+        <Field label="Nome de exibição" value={session.user.name ?? "Não informado"} />
+        <Field label="E-mail" value={session.user.email ?? "Não informado"} />
       </dl>
       <p className={styles.note}>
-        Use the verified issuer and subject as the external identity key. Email is not a stable
-        identity, and an unverified email must not be treated as verified. Tenant access is
-        resolved from the IAM database, not from user_metadata or app_metadata.
+        Use o par (emissor, sujeito) validado como chave da identidade externa. E-mail não é uma chave estável
+        e um endereço não verificado não deve ser tratado como verificado. O acesso ao tenant é resolvido
+        pelo banco do IAM, nunca por user_metadata ou app_metadata. Emissor, audiência e algoritmos exibidos são configurações;
+        esta tela não os apresenta como claims validados. A expiração é lida apenas dos metadados da sessão SDK; a API continua responsável pela validação do JWT.
       </p>
       <AuthorizationProbe />
       <div className={styles.actions}>
@@ -66,8 +81,8 @@ async function SessionDiagnostics() {
 function SessionDiagnosticsFallback() {
   return (
     <div className={styles.session} aria-live="polite">
-      <h2>Loading session diagnostics…</h2>
-      <p className={styles.note}>Checking the server-side Auth0 session.</p>
+      <h2>Carregando diagnóstico da sessão…</h2>
+      <p className={styles.note}>Verificando a sessão Auth0 no servidor.</p>
     </div>
   );
 }
@@ -76,19 +91,16 @@ export default function AuthDiagnosticsPage() {
   return (
     <main className={styles.page}>
       <section className={styles.panel} aria-labelledby="page-title">
-        <p className={styles.eyebrow}>IDENTITY & ACCESS MANAGEMENT</p>
-        <h1 id="page-title">Auth diagnostics</h1>
+        <p className={styles.eyebrow}>IDENTIDADE E CONTROLE DE ACESSO</p>
+        <h1 id="page-title">Diagnóstico de autenticação</h1>
         <p className={styles.description}>
-          Collect the evidence needed to diagnose Auth0 sign-in and IAM API authorization.
-          Tokens and credentials are never displayed.
+          Reúna evidências de login, validação de token e autorização na API IAM. Tokens e credenciais nunca são exibidos.
         </p>
         <Suspense fallback={<SessionDiagnosticsFallback />}>
           <SessionDiagnostics />
         </Suspense>
-        <CallbackProbe />
         <p className={styles.footer}>
-          Security: this page never renders access tokens, ID tokens, cookies, client secrets, or raw session contents.
-          The API test runs server-side and returns only the authorization outcome and non-secret IDs.
+          Segurança: esta página nunca exibe tokens de acesso, ID tokens, cookies, segredos de cliente ou o conteúdo bruto da sessão. Os testes são executados no servidor e retornam somente resultados e identificadores não secretos.
         </p>
       </section>
     </main>
