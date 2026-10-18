@@ -9,11 +9,28 @@ DECLARE
   bad_owner text;
   can_update_audit boolean;
   can_delete_audit boolean;
+  privileged_role_memberships text;
+  can_create_public boolean;
 BEGIN
   SELECT rolsuper, rolbypassrls INTO role_super, role_bypass
     FROM pg_roles WHERE rolname = runtime_name;
   IF COALESCE(role_super, true) OR COALESCE(role_bypass, true) THEN
     RAISE EXCEPTION 'runtime_role_has_privileged_attributes:%', runtime_name;
+  END IF;
+
+  -- Reject memberships that would allow SET ROLE into a superuser or BYPASSRLS role.
+  SELECT string_agg(r.rolname, ', ' ORDER BY r.rolname) INTO privileged_role_memberships
+    FROM pg_roles r
+    WHERE (r.rolsuper OR r.rolbypassrls)
+      AND pg_has_role(runtime_name, r.oid, 'MEMBER');
+  IF privileged_role_memberships IS NOT NULL THEN
+    RAISE EXCEPTION 'runtime_can_set_privileged_role:%', privileged_role_memberships;
+  END IF;
+
+  -- The application runtime must not be able to create objects in public.
+  can_create_public := has_schema_privilege(runtime_name, 'public', 'CREATE');
+  IF can_create_public THEN
+    RAISE EXCEPTION 'runtime_can_create_in_public_schema:%', runtime_name;
   END IF;
 
   SELECT string_agg(c.relname, ', ' ORDER BY c.relname) INTO bad_rls
