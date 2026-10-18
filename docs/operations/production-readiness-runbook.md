@@ -76,6 +76,6 @@ A prontidão de produção exige aprovação de todos os controles: integração
 
 ## CI security gates — evidence required
 
-The required CI workflow runs a Gitleaks scan against the checkout/history and `pnpm audit --audit-level high` against the locked dependency graph. For each release candidate, record the exact commit and successful run URL. A failed or unavailable scan is a release blocker, not a pass. Do not add real credentials to test fixtures; use synthetic values only.
+The required CI workflow runs a Gitleaks scan against the checked-out source and `pnpm audit --audit-level high` against the locked dependency graph. Full Git-history scanning remains unverified and is tracked separately. For each release candidate, record the exact commit and successful run URL. A failed or unavailable scan is a release blocker, not a pass. Do not add real credentials to test fixtures; use synthetic values only.
 
 Before production, separately verify GitHub repository-level secret scanning and push protection availability/configuration, because a successful CI scan does not prove those repository settings are enabled. Temporary vulnerability exceptions must identify the affected dependency, severity, mitigation, owner and expiry date; expired exceptions fail the gate.
