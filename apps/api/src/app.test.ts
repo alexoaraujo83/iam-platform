@@ -100,6 +100,27 @@ describe("IAM HTTP API", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
+  it("returns only verified identity metadata with authorized tenant context", async () => {
+    const verifiedContext: TenantContextResponse = {
+      ...context,
+      identityEvidence: {
+        issuer: "https://issuer.example.test/",
+        subject: "external-subject-1",
+        audience: "urn:iam-platform:test-api",
+        algorithm: "RS256",
+        expiresAt: 1_900_000_000
+      }
+    };
+    const response = await requestApi(
+      vi.fn<ResolveTenantContext>().mockResolvedValue(verifiedContext),
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/context",
+      { authorization: "Bearer valid-token" }
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(verifiedContext);
+    expect(JSON.stringify(verifiedContext)).not.toContain("token");
+  });
+
   it("denies a tenant without active membership", async () => {
     const response = await requestApi(async () => null, "/v1/tenants/22222222-2222-4222-8222-222222222222/context", {
       authorization: "Bearer valid-token"
