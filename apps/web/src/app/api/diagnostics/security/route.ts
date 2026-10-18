@@ -21,17 +21,6 @@ function isUuid(value: string | undefined): value is string {
   return !!value && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
-function tokenExpiry(token: string): number | null {
-  try {
-    const part = token.split(".")[1];
-    if (!part) return null;
-    const payload = JSON.parse(Buffer.from(part, "base64url").toString("utf8")) as { exp?: unknown };
-    return typeof payload.exp === "number" ? payload.exp : null;
-  } catch {
-    return null;
-  }
-}
-
 export async function POST(request: NextRequest) {
   const origin = request.headers.get("origin");
   if (!origin || origin !== request.nextUrl.origin) {
@@ -172,17 +161,13 @@ export async function POST(request: NextRequest) {
     checks.push({ id: "cross-tenant", label: "Acesso a outro tenant deve ser negado (403)", expectedStatus: 403, status: "not_configured", detail: "Configure IAM_DIAGNOSTICS_OTHER_TENANT_ID com um tenant isolado, pertencente a outra identidade e sem associação para a sessão atual." });
   }
 
-  const expiredToken = process.env.IAM_DIAGNOSTICS_EXPIRED_ACCESS_TOKEN?.trim();
-  if (expiredToken) {
-    const exp = tokenExpiry(expiredToken);
-    if (exp === null || exp >= Math.floor(Date.now() / 1000)) {
-      checks.push({ id: "expired-token", label: "Token expirado deve retornar 401", expectedStatus: 401, status: "not_configured", detail: "Fixture inválida ou exp ausente/futuro; nenhum pedido foi enviado. Corrija IAM_DIAGNOSTICS_EXPIRED_ACCESS_TOKEN antes de executar este teste." });
-    } else {
-      await probe("expired-token", "Token expirado deve retornar 401", primaryTenantId, `Bearer ${expiredToken}`, 401, "invalid_access_token");
-    }
-  } else {
-    checks.push({ id: "expired-token", label: "Token expirado deve retornar 401", expectedStatus: 401, status: "not_configured", detail: "Configure IAM_DIAGNOSTICS_EXPIRED_ACCESS_TOKEN apenas com um token de teste expirado; ele será usado somente no servidor e nunca será retornado." });
-  }
+  checks.push({
+    id: "expired-token",
+    label: "Token expirado deve retornar 401",
+    expectedStatus: 401,
+    status: "not_configured",
+    detail: "O teste criptográfico de token expirado é gerado com chaves locais controladas no CI. O E2E de Preview requer uma fixture efêmera específica do ambiente; nenhum JWT manual permanente é lido de variáveis de ambiente."
+  });
 
   const failed = checks.some((check) => check.status === "fail");
   const blocked = checks.some((check) => check.status === "blocked");
