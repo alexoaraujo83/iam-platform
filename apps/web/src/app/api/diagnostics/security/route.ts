@@ -57,6 +57,7 @@ export async function POST(request: NextRequest) {
   if (bypassSecret) commonHeaders["x-vercel-protection-bypass"] = bypassSecret;
 
   const checks: Check[] = [];
+  let apiVersion: string | null = null;
 
   async function probe(
     id: string,
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest) {
         `${apiBase}/v1/tenants/${encodeURIComponent(tenantId)}/control-center`,
         { method: "GET", headers, cache: "no-store", signal: AbortSignal.timeout(8_000) },
       );
+      apiVersion = response.headers.get("x-iam-api-version") ?? apiVersion;
       const contentType = response.headers.get("content-type") ?? "";
       const payload = contentType.includes("application/json")
         ? await response.json().catch(() => ({})) as Record<string, unknown>
@@ -136,7 +138,7 @@ export async function POST(request: NextRequest) {
   if (expiredToken) {
     const exp = tokenExpiry(expiredToken);
     if (exp === null || exp >= Math.floor(Date.now() / 1000)) {
-      checks.push({ id: "expired-token", label: "Token expirado deve retornar 401", expectedStatus: 401, status: "fail", detail: "O token configurado não possui exp válido já vencido; nenhum pedido foi enviado." });
+      checks.push({ id: "expired-token", label: "Token expirado deve retornar 401", expectedStatus: 401, status: "not_configured", detail: "Fixture inválida ou exp ausente/futuro; nenhum pedido foi enviado. Corrija IAM_DIAGNOSTICS_EXPIRED_ACCESS_TOKEN antes de executar este teste." });
     } else {
       await probe("expired-token", "Token expirado deve retornar 401", primaryTenantId, `Bearer ${expiredToken}`, 401, "invalid_access_token");
     }
@@ -150,6 +152,12 @@ export async function POST(request: NextRequest) {
   return safeResult(200, {
     ok: !failed && !blocked && !notConfigured,
     outcome: failed ? "security_checks_failed" : blocked ? "security_checks_inconclusive" : notConfigured ? "security_checks_partially_configured" : "security_checks_passed",
+    execution: {
+      executedAtUtc: new Date().toISOString(),
+      environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "unknown",
+      webCommit: process.env.VERCEL_GIT_COMMIT_SHA ?? "unknown",
+      apiVersion,
+    },
     checks,
   });
 }
