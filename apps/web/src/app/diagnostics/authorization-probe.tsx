@@ -7,6 +7,17 @@ type DiagnosticResult = {
   ok: boolean;
   outcome: string;
   execution?: { executedAtUtc: string; environment: string; webCommit: string; apiVersion: string | null };
+  authorizationEvidence?: {
+    issuer: string;
+    subject: string;
+    audience: string | string[];
+    algorithm: string;
+    expiresAt: number;
+    tenantId: string;
+    principalId: string;
+    membershipId: string;
+    permissionGranted: boolean;
+  } | null;
   checks: {
     id: string;
     label: string;
@@ -117,6 +128,22 @@ export default function AuthorizationProbe() {
             </p>
             <ul className={styles.permissionList}>
               {result.execution && <li><strong>Executado em (UTC):</strong> {result.execution.executedAtUtc}<br /><strong>Ambiente:</strong> {result.execution.environment}<br /><strong>Commit web:</strong> <code>{result.execution.webCommit}</code><br /><strong>Versão/commit da API:</strong> <code>{result.execution.apiVersion ?? "Não informada pela API"}</code></li>}
+              {result.authorizationEvidence && (
+                <li>
+                  <strong>Evidência confirmada pela API</strong>
+                  <div className={styles.note}>
+                    <strong>Resultado:</strong> {result.authorizationEvidence.permissionGranted ? "Autorizado" : "Permissão não confirmada"}<br />
+                    <strong>Emissor (iss):</strong> <code>{result.authorizationEvidence.issuer}</code><br />
+                    <strong>Sujeito (sub):</strong> <code>{result.authorizationEvidence.subject}</code><br />
+                    <strong>Audiência (aud):</strong> <code>{Array.isArray(result.authorizationEvidence.audience) ? result.authorizationEvidence.audience.join(", ") : result.authorizationEvidence.audience}</code><br />
+                    <strong>Algoritmo validado:</strong> <code>{result.authorizationEvidence.algorithm}</code><br />
+                    <strong>Expiração do token (exp, UTC):</strong> {new Date(result.authorizationEvidence.expiresAt * 1000).toISOString()}<br />
+                    <strong>Tenant ID:</strong> <code>{result.authorizationEvidence.tenantId}</code><br />
+                    <strong>Principal ID:</strong> <code>{result.authorizationEvidence.principalId}</code><br />
+                    <strong>Membership ID:</strong> <code>{result.authorizationEvidence.membershipId}</code>
+                  </div>
+                </li>
+              )}
               {result.checks.map((check) => (
                 <li key={check.id}>
                   <strong>{statusLabels[check.status]}</strong> — {check.label}
