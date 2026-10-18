@@ -382,4 +382,44 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     expect(result.rows[0]?.can_create).toBe(false);
   });
 
+  it("rejects an invalid tenant context instead of coercing it", async () => {
+    await expect(
+      withTenant("not-a-uuid", async (client) => {
+        await client.query("SELECT id FROM tenants");
+      })
+    ).rejects.toMatchObject({ code: "22P02" });
+  });
+
+  it("clears transaction-local tenant context after rollback on a reused connection", async () => {
+    const client = await runtime.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantA]);
+      await expect(
+        client.query(
+          "INSERT INTO memberships (tenant_id, principal_id) VALUES ($1, $2)",
+          [tenantB, principalB]
+        )
+      ).rejects.toMatchObject({ code: "42501" });
+
+      await client.query("ROLLBACK");
+      await client.query("BEGIN");
+
+      const unscoped = await client.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM tenants"
+      );
+      expect(unscoped.rows[0]?.count).toBe("0");
+
+      await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantB]);
+      const scoped = await client.query<{ id: string }>("SELECT id FROM tenants");
+      expect(scoped.rows).toEqual([{ id: tenantB }]);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
+
 });
