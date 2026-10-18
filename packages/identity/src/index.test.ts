@@ -56,7 +56,8 @@ describe("OIDC verifier", () => {
       subject: "external-user-123",
       audience: config.audience,
       issuedAt: fixture.now,
-      expiresAt: fixture.now + 120
+      expiresAt: fixture.now + 120,
+      algorithm: "RS256"
     });
     expect(identity).not.toHaveProperty("tenantId");
     expect(identity).not.toHaveProperty("roles");
