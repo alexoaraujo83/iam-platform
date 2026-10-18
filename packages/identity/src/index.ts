@@ -14,6 +14,7 @@ export interface VerifiedExternalIdentity {
   readonly audience: string | readonly string[];
   readonly issuedAt: number;
   readonly expiresAt: number;
+  readonly algorithm: string;
 }
 
 export type OidcTokenVerifier = (token: string) => Promise<VerifiedExternalIdentity>;
@@ -39,7 +40,7 @@ export function createOidcVerifier(
       throw new Error("invalid_token");
     }
 
-    const { payload } = await jwtVerify(token, jwks, {
+    const { payload, protectedHeader } = await jwtVerify(token, jwks, {
       algorithms: allowedAlgorithms,
       issuer: config.issuer,
       audience: config.audience,
@@ -50,7 +51,7 @@ export function createOidcVerifier(
       throw new Error("token_issued_in_future");
     }
 
-    return toVerifiedIdentity(payload);
+    return toVerifiedIdentity(payload, protectedHeader.alg);
   };
 }
 
@@ -84,13 +85,14 @@ function assertHttpsUrl(value: string, errorCode: string): void {
   }
 }
 
-function toVerifiedIdentity(payload: JWTPayload): VerifiedExternalIdentity {
+function toVerifiedIdentity(payload: JWTPayload, algorithm: string | undefined): VerifiedExternalIdentity {
   if (
     typeof payload.iss !== "string" ||
     typeof payload.sub !== "string" ||
     payload.sub.trim().length === 0 ||
     typeof payload.iat !== "number" ||
     typeof payload.exp !== "number" ||
+    typeof algorithm !== "string" ||
     (typeof payload.aud !== "string" &&
       (!Array.isArray(payload.aud) || !payload.aud.every((item) => typeof item === "string")))
   ) {
@@ -102,7 +104,8 @@ function toVerifiedIdentity(payload: JWTPayload): VerifiedExternalIdentity {
     subject: payload.sub,
     audience: payload.aud,
     issuedAt: payload.iat,
-    expiresAt: payload.exp
+    expiresAt: payload.exp,
+    algorithm
   };
 }
 
