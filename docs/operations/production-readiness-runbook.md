@@ -72,3 +72,10 @@ Campos mínimos: ID de evento gerado, data/hora UTC, resultado, ação, identida
 Para cada controle, registrar SHA do commit, identificador do ambiente-alvo (nunca credenciais), comando/procedimento, data/hora, resultado, operador, referência de artefato/log e exceção com responsável e validade. Marcar cada controle como `NOT RUN`, `PASS` ou `FAIL`; não inferir aprovação apenas por implementação ou CI.
 
 A prontidão de produção exige aprovação de todos os controles: integração OIDC/JWKS real, verificação PostgreSQL/RLS da implantação, auditoria durável, revisão de segredos/configuração, encerramento gracioso, exercício de backup/restauração, monitoramento/alertas e procedimento de rollback revisado. Até lá, o status da release permanece **BLOQUEADO**.
+
+
+## CI security gates — evidence required
+
+The required CI workflow runs a Gitleaks scan against the checkout/history and `pnpm audit --audit-level high` against the locked dependency graph. For each release candidate, record the exact commit and successful run URL. A failed or unavailable scan is a release blocker, not a pass. Do not add real credentials to test fixtures; use synthetic values only.
+
+Before production, separately verify GitHub repository-level secret scanning and push protection availability/configuration, because a successful CI scan does not prove those repository settings are enabled. Temporary vulnerability exceptions must identify the affected dependency, severity, mitigation, owner and expiry date; expired exceptions fail the gate.
