@@ -62,7 +62,8 @@
   line-height: 1.6;
 }
 
-.note {
+.note,
+.footer {
   color: #687185;
   font-size: 13px;
   line-height: 1.6;
