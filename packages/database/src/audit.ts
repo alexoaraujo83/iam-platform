@@ -68,7 +68,7 @@ export async function appendAuditEvent(client: Pick<PoolClient, "query">, event:
   return id;
 }
 
- 
+
 export interface PreAuthSecurityEvent {
   readonly action: string;
   readonly outcome: AuditOutcome;
