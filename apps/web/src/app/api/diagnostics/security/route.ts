@@ -58,6 +58,17 @@ export async function POST(request: NextRequest) {
 
   const checks: Check[] = [];
   let apiVersion: string | null = null;
+  let authorizationEvidence: {
+    issuer: string;
+    subject: string;
+    audience: string | string[];
+    algorithm: string;
+    expiresAt: number;
+    tenantId: string;
+    principalId: string;
+    membershipId: string;
+    permissionGranted: boolean;
+  } | null = null;
 
   async function probe(
     id: string,
@@ -85,6 +96,33 @@ export async function POST(request: NextRequest) {
       const permissionGranted = permissions.some((permission) =>
         permission?.resource === "iam" && permission?.action === "control_center.read",
       );
+      if (id === "valid-session" && response.status === 200 && isApplicationResponse) {
+        const identity = payload.identityEvidence as Record<string, unknown> | undefined;
+        if (
+          identity &&
+          typeof identity.issuer === "string" &&
+          typeof identity.subject === "string" &&
+          (typeof identity.audience === "string" ||
+            (Array.isArray(identity.audience) && identity.audience.every((item) => typeof item === "string"))) &&
+          typeof identity.algorithm === "string" &&
+          typeof identity.expiresAt === "number" &&
+          typeof payload.tenantId === "string" &&
+          typeof payload.principalId === "string" &&
+          typeof payload.membershipId === "string"
+        ) {
+          authorizationEvidence = {
+            issuer: identity.issuer,
+            subject: identity.subject,
+            audience: identity.audience as string | string[],
+            algorithm: identity.algorithm,
+            expiresAt: identity.expiresAt,
+            tenantId: payload.tenantId,
+            principalId: payload.principalId,
+            membershipId: payload.membershipId,
+            permissionGranted,
+          };
+        }
+      }
       const codeMatches = !expectedError || payload.error === expectedError;
       const expectedBehavior = response.status === expectedStatus && codeMatches &&
         (!requireControlCenterPermission || permissionGranted);
@@ -158,6 +196,7 @@ export async function POST(request: NextRequest) {
       webCommit: process.env.VERCEL_GIT_COMMIT_SHA ?? "unknown",
       apiVersion,
     },
+    authorizationEvidence,
     checks,
   });
 }
