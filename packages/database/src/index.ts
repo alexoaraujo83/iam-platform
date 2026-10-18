@@ -1,6 +1,6 @@
 export { withAuthenticatedTenant } from "./authenticated-tenant.js";
-export { appendAuditEvent } from "./audit.js";
-export type { AuditEvent, AuditOutcome } from "./audit.js";
+export { appendAuditEvent, appendPreAuthSecurityEvent } from "./audit.js";
+export type { AuditEvent, AuditOutcome, PreAuthSecurityEvent } from "./audit.js";
 export type {
   AuthenticatedTenantContext,
   AuthorizationEvaluator,
