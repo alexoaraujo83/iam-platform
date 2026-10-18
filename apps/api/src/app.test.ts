@@ -42,6 +42,17 @@ describe("IAM HTTP API", () => {
     expect(checkReadiness).not.toHaveBeenCalled();
   });
 
+  it("preserves a safe correlation ID and returns API version metadata", async () => {
+    const response = await requestApi(
+      vi.fn<ResolveTenantContext>(),
+      "/health",
+      { "x-correlation-id": "diagnostic-correlation-123" }
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-correlation-id")).toBe("diagnostic-correlation-123");
+    expect(response.headers.get("x-iam-api-version")).toBeTruthy();
+  });
+
   it("reports readiness only when the dependency check succeeds", async () => {
     const checkReadiness = vi.fn<CheckReadiness>().mockResolvedValue(true);
     const response = await requestApi(vi.fn<ResolveTenantContext>(), "/health/ready", undefined, checkReadiness);
