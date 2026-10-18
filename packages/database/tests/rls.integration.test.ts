@@ -363,4 +363,23 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     expect(ownership.rows[0]?.owned_count).toBe("0");
   });
 
+
+  it("cannot SET ROLE into a superuser or BYPASSRLS role", async () => {
+    const result = await runtime.query<{ role_name: string }>(
+      `SELECT r.rolname AS role_name
+         FROM pg_roles r
+        WHERE (r.rolsuper OR r.rolbypassrls)
+          AND pg_has_role(current_user, r.oid, 'MEMBER')
+        ORDER BY r.rolname`
+    );
+    expect(result.rows).toEqual([]);
+  });
+
+  it("cannot create objects in the public schema", async () => {
+    const result = await runtime.query<{ can_create: boolean }>(
+      "SELECT has_schema_privilege(current_user, 'public', 'CREATE') AS can_create"
+    );
+    expect(result.rows[0]?.can_create).toBe(false);
+  });
+
 });
