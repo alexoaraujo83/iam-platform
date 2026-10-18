@@ -35,7 +35,7 @@ jobs:
           test -n "$AUTH0_MGMT_CLIENT_ID" || { echo "::error::Missing secret AUTH0_MGMT_CLIENT_ID"; exit 1; }
           test -n "$AUTH0_MGMT_CLIENT_SECRET" || { echo "::error::Missing secret AUTH0_MGMT_CLIENT_SECRET"; exit 1; }
 
-      - name: Inspect existing grant and optionally authorize M2M
+      - name: Verify dedicated Management API scopes
         shell: bash
         run: |
           set -euo pipefail
@@ -50,6 +50,28 @@ jobs:
           access_token="$(printf '%s' "$token_response" | jq -er '.access_token')"
           unset token_response
 
+          mgmt_grants="$(curl --fail-with-body --silent --show-error --get \
+            "https://$AUTH0_DOMAIN/api/v2/client-grants" \
+            --header "authorization: Bearer $access_token" \
+            --data-urlencode "client_id=$AUTH0_MGMT_CLIENT_ID" \
+            --data-urlencode "audience=https://$AUTH0_DOMAIN/api/v2/" \
+            --data-urlencode "per_page=100" \
+            --data-urlencode "include_totals=true")"
+
+          if ! printf '%s' "$mgmt_grants" | jq -e \
+            --arg cid "$AUTH0_MGMT_CLIENT_ID" \
+            --arg aud "https://$AUTH0_DOMAIN/api/v2/" \
+            '(.client_grants // .) | any(.[]; .client_id == $cid and .audience == $aud and ((.scope // []) | index("read:client_grants")) and ((.scope // []) | index("create:client_grants")))' >/dev/null; then
+            echo "::error::The dedicated M2M grant is missing read:client_grants and/or create:client_grants on the Auth0 Management API."
+            printf '%s' "$mgmt_grants" | jq -r --arg cid "$AUTH0_MGMT_CLIENT_ID" --arg aud "https://$AUTH0_DOMAIN/api/v2/" \
+              '(.client_grants // .)[] | select(.client_id == $cid and .audience == $aud) | "Observed Management API scopes: " + ((.scope // []) | join(", "))' || true
+            exit 1
+          fi
+
+          printf '%s' "$mgmt_grants" | jq -r --arg cid "$AUTH0_MGMT_CLIENT_ID" --arg aud "https://$AUTH0_DOMAIN/api/v2/" \
+            '(.client_grants // .)[] | select(.client_id == $cid and .audience == $aud) | "PASS: dedicated Management API scopes verified: " + ((.scope // []) | join(", "))'
+          unset mgmt_grants
+
           grants="$(curl --fail-with-body --silent --show-error --get \
             "https://$AUTH0_DOMAIN/api/v2/client-grants" \
             --header "authorization: Bearer $access_token" \
@@ -61,11 +83,13 @@ jobs:
           if printf '%s' "$grants" | jq -e --arg cid "$M2M_CLIENT_ID" --arg aud "$API_AUDIENCE" \
             '(.client_grants // .) | any(.[]; .client_id == $cid and .audience == $aud)' >/dev/null; then
             echo "PASS: the M2M client already has a grant for the IAM Platform API."
+            unset access_token grants
             exit 0
           fi
 
           if [ "$APPLY" != "true" ]; then
             echo "::notice::No client grant found. Dry run only; rerun manually with apply=true to create it."
+            unset access_token grants
             exit 0
           fi
 
