@@ -370,7 +370,6 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     expect(ownership.rows[0]?.owned_count).toBe("0");
   });
 
-
   it("writes pre-auth security events to a separate global INSERT-only store without tenant context", async () => {
     const client = await runtime.connect();
     let eventId: string;
