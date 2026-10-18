@@ -47,8 +47,12 @@ jobs:
       - name: Generate disposable CI auth secrets
         shell: bash
         run: |
-          echo "AUTH0_CLIENT_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
-          echo "AUTH0_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          client_secret="$(openssl rand -hex 32)"
+          auth0_secret="$(openssl rand -hex 32)"
+          echo "::add-mask::$client_secret"
+          echo "::add-mask::$auth0_secret"
+          echo "AUTH0_CLIENT_SECRET=$client_secret" >> "$GITHUB_ENV"
+          echo "AUTH0_SECRET=$auth0_secret" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v7
         with:
           node-version: 24
