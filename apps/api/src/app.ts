@@ -28,7 +28,8 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
-    "x-content-type-options": "nosniff"
+    "x-content-type-options": "nosniff",
+    "x-iam-api-version": process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.API_VERSION ?? "unknown"
   });
   response.end(JSON.stringify(body));
 }
