@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
   if (expiredToken) {
     const exp = tokenExpiry(expiredToken);
     if (exp === null || exp >= Math.floor(Date.now() / 1000)) {
-      checks.push({ id: "expired-token", label: "Token expirado deve retornar 401", expectedStatus: 401, status: "fail", detail: "O token configurado não possui exp válido já vencido; nenhum pedido foi enviado." });
+      checks.push({ id: "expired-token", label: "Token expirado deve retornar 401", expectedStatus: 401, status: "not_configured", detail: "Fixture inválida ou exp ausente/futuro; nenhum pedido foi enviado. Corrija IAM_DIAGNOSTICS_EXPIRED_ACCESS_TOKEN antes de executar este teste." });
     } else {
       await probe("expired-token", "Token expirado deve retornar 401", primaryTenantId, `Bearer ${expiredToken}`, 401, "invalid_access_token");
     }
