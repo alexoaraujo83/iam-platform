@@ -5,6 +5,7 @@ import react from "eslint-plugin-react";
 import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
 import tseslint from "typescript-eslint";
+import nextGuardrails from "./eslint-next-guardrails.mjs";
 
 const eslintConfig = defineConfig([
   js.configs.recommended,
@@ -21,6 +22,7 @@ const eslintConfig = defineConfig([
       react,
       "react-hooks": reactHooks,
       "jsx-a11y": jsxA11y,
+      "iam-next-guardrails": nextGuardrails,
     },
     settings: {
       react: {
@@ -34,6 +36,8 @@ const eslintConfig = defineConfig([
       "react/prop-types": "off",
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",
+      "iam-next-guardrails/no-img-element": "warn",
+      "iam-next-guardrails/no-html-link-for-pages": "warn",
     },
   },
   globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts"]),
