@@ -33,6 +33,16 @@ async function SessionDiagnostics() {
     );
   }
 
+  const sessionMetadata = session as unknown as Record<string, unknown>;
+  const tokenSet = sessionMetadata.tokenSet && typeof sessionMetadata.tokenSet === "object"
+    ? sessionMetadata.tokenSet as Record<string, unknown>
+    : {};
+  const formatExpiry = (value: unknown) => typeof value === "number" && Number.isFinite(value)
+    ? new Date(value > 10_000_000_000 ? value : value * 1000).toISOString()
+    : "Não disponível nos metadados da sessão";
+  const sessionExpiresAt = formatExpiry(sessionMetadata.expiresAt);
+  const accessTokenExpiresAt = formatExpiry(tokenSet.expiresAt ?? tokenSet.expires_at);
+
   return (
     <div className={styles.session}>
       <h2>Sessão da aplicação detectada</h2>
@@ -43,6 +53,12 @@ async function SessionDiagnostics() {
         <Field label="Sessão web" value="Presente" />
         <Field label="Sujeito da sessão (sub)" value={session.user.sub ?? "Não presente na sessão"} />
         <Field label="Emissor configurado (não é prova de validação)" value={process.env.OIDC_ISSUER ?? "Não configurado no ambiente web"} />
+        <Field label="Audiência solicitada (configuração)" value={process.env.AUTH0_AUDIENCE ?? "Não configurada"} />
+        <Field label="Algoritmos permitidos (configuração)" value={process.env.OIDC_ALLOWED_ALGORITHMS ?? "Não configurados"} />
+        <Field label="Expiração da sessão web (UTC)" value={sessionExpiresAt} />
+        <Field label="Expiração do token de acesso (UTC)" value={accessTokenExpiresAt} />
+        <Field label="Ambiente" value={process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "Não informado"} />
+        <Field label="Commit web" value={process.env.VERCEL_GIT_COMMIT_SHA ?? "Não informado"} />
         <Field label="E-mail verificado" value={typeof session.user.email_verified === "boolean" ? (session.user.email_verified ? "Sim" : "Não") : "Não informado"} />
         <Field label="Nome de exibição" value={session.user.name ?? "Não informado"} />
         <Field label="E-mail" value={session.user.email ?? "Não informado"} />
@@ -50,7 +66,8 @@ async function SessionDiagnostics() {
       <p className={styles.note}>
         Use o par (emissor, sujeito) validado como chave da identidade externa. E-mail não é uma chave estável
         e um endereço não verificado não deve ser tratado como verificado. O acesso ao tenant é resolvido
-        pelo banco do IAM, nunca por user_metadata ou app_metadata.
+        pelo banco do IAM, nunca por user_metadata ou app_metadata. Emissor, audiência e algoritmos exibidos são configurações;
+        esta tela não os apresenta como claims validados. A expiração é lida apenas dos metadados da sessão SDK; a API continua responsável pela validação do JWT.
       </p>
       <AuthorizationProbe />
       <div className={styles.actions}>
