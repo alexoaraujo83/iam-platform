@@ -27,6 +27,45 @@ export type ApiRequestHandler = (request: IncomingMessage, response: ServerRespo
 const CONTEXT_PERMISSION: RequiredTenantPermission = { resource: "iam", action: "context.read" };
 const CONTROL_CENTER_PERMISSION: RequiredTenantPermission = { resource: "iam", action: "control_center.read" };
 
+export function createPreAuthAuditLimiter(
+  maxEntries = 4096,
+  windowMs = 60_000,
+  perWindowLimit = 10
+): (peer: string, now?: number) => boolean {
+  if (!Number.isSafeInteger(maxEntries) || maxEntries < 1) {
+    throw new Error("invalid_audit_limiter_max_entries");
+  }
+  if (!Number.isSafeInteger(windowMs) || windowMs < 1) {
+    throw new Error("invalid_audit_limiter_window_ms");
+  }
+  if (!Number.isSafeInteger(perWindowLimit) || perWindowLimit < 1) {
+    throw new Error("invalid_audit_limiter_per_window_limit");
+  }
+
+  const windows = new Map<string, { startedAt: number; count: number }>();
+  return (peer: string, now = Date.now()): boolean => {
+    let window = windows.get(peer);
+    if (window && now - window.startedAt < windowMs) {
+      if (window.count >= perWindowLimit) return false;
+      window.count += 1;
+      return true;
+    }
+
+    if (window) windows.delete(peer);
+    if (windows.size >= maxEntries) {
+      for (const [address, current] of windows) {
+        if (now - current.startedAt >= windowMs) windows.delete(address);
+      }
+      // Fail closed for audit writes under high-cardinality source pressure.
+      // Do not evict live windows, which would reset a peer's rate limit.
+      if (windows.size >= maxEntries) return false;
+    }
+
+    windows.set(peer, { startedAt: now, count: 1 });
+    return true;
+  };
+}
+
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -43,28 +82,13 @@ export function createApiHandler(
 ): ApiRequestHandler {
   // Bound unauthenticated write amplification per socket peer. Do not trust
   // X-Forwarded-For here; it is only safe behind a separately trusted proxy.
-  const auditWindows = new Map<string, { startedAt: number; count: number }>();
-  const auditWindowMs = 60_000;
-  const auditWindowLimit = 10;
+  const shouldRecordAudit = createPreAuthAuditLimiter();
 
   async function recordAuthFailure(request: IncomingMessage, reason: string): Promise<boolean> {
-    const now = Date.now();
     const key = request.socket.remoteAddress ?? "unknown";
-    let window = auditWindows.get(key);
-    if (!window || now - window.startedAt >= auditWindowMs) {
-      window = { startedAt: now, count: 0 };
-      auditWindows.set(key, window);
-    }
-    if (window.count >= auditWindowLimit) return true;
-    window.count += 1;
-
-    // Keep the map bounded even if many source addresses connect.
-    if (auditWindows.size > 4096) {
-      for (const [address, current] of auditWindows) {
-        if (now - current.startedAt >= auditWindowMs) auditWindows.delete(address);
-        if (auditWindows.size <= 3072) break;
-      }
-    }
+    // A saturated limiter suppresses additional unauthenticated writes while
+    // preserving denial; active windows are never evicted to reset rate limits.
+    if (!shouldRecordAudit(key)) return true;
 
     const rawRequestId = request.headers["x-request-id"];
     const requestId = typeof rawRequestId === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(rawRequestId)
