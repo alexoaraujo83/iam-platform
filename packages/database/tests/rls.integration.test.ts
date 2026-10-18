@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { appendAuditEvent, appendPreAuthSecurityEvent } from "../src/audit.js";
 import { resolveActiveMembership } from "../src/membership-resolution.js";
 
 const enabled =
@@ -54,6 +55,11 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
       "utf8"
     );
     await admin.query(controlCenterPermissionMigration);
+    const globalSecurityMigration = await readFile(
+      new URL("../migrations/0004_pre_auth_security_events.sql", import.meta.url),
+      "utf8"
+    );
+    await admin.query(globalSecurityMigration);
 
     await admin.query(`
       DO $$
@@ -68,6 +74,7 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
       GRANT SELECT, INSERT, UPDATE, DELETE ON tenants, memberships, roles, role_permissions, membership_roles, applications TO iam_runtime;
       GRANT SELECT, INSERT ON audit_events TO iam_runtime;
       GRANT SELECT ON principals, external_identities, permissions TO iam_runtime;
+      GRANT INSERT ON global_security_events TO iam_runtime;
     `);
 
     const tenantAResult = await admin.query<{ id: string }>(
@@ -361,6 +368,90 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
         AND c.relowner = (SELECT oid FROM pg_roles WHERE rolname = current_user)
     `, [["tenants", "memberships", "principals", "external_identities", "roles", "role_permissions", "membership_roles", "applications", "audit_events"]]);
     expect(ownership.rows[0]?.owned_count).toBe("0");
+  });
+
+
+  it("writes pre-auth security events to a separate global INSERT-only store without tenant context", async () => {
+    const client = await runtime.connect();
+    let eventId: string;
+    try {
+      await client.query("BEGIN");
+      eventId = await appendPreAuthSecurityEvent(client, {
+        action: "security.authn_failed",
+        outcome: "failure",
+        correlationId: "preauth-isolation-test",
+        requestId: "preauth-request-test",
+        metadata: { reason: "invalid_token" }
+      });
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    const persisted = await admin.query<{
+      id: string;
+      action: string;
+      outcome: string;
+      correlation_id: string;
+      metadata: Record<string, unknown>;
+    }>(
+      "SELECT id, action, outcome, correlation_id, metadata FROM global_security_events WHERE id = $1",
+      [eventId!]
+    );
+    expect(persisted.rows).toEqual([{
+      id: eventId!,
+      action: "security.authn_failed",
+      outcome: "failure",
+      correlation_id: "preauth-isolation-test",
+      metadata: { reason: "invalid_token" }
+    }]);
+
+    await expect(
+      runtime.query("SELECT id FROM global_security_events WHERE id = $1", [eventId!])
+    ).rejects.toMatchObject({ code: "42501" });
+    await expect(
+      runtime.query("UPDATE global_security_events SET action = 'security.tampered' WHERE id = $1", [eventId!])
+    ).rejects.toMatchObject({ code: "42501" });
+    await expect(
+      runtime.query("DELETE FROM global_security_events WHERE id = $1", [eventId!])
+    ).rejects.toMatchObject({ code: "42501" });
+
+    const grants = await admin.query<{ can_insert: boolean; can_select: boolean; can_update: boolean; can_delete: boolean }>(`
+      SELECT
+        has_table_privilege('iam_runtime', 'public.global_security_events', 'INSERT') AS can_insert,
+        has_table_privilege('iam_runtime', 'public.global_security_events', 'SELECT') AS can_select,
+        has_table_privilege('iam_runtime', 'public.global_security_events', 'UPDATE') AS can_update,
+        has_table_privilege('iam_runtime', 'public.global_security_events', 'DELETE') AS can_delete
+    `);
+    expect(grants.rows[0]).toEqual({ can_insert: true, can_select: false, can_update: false, can_delete: false });
+  });
+
+  it("does not allow a pre-auth NULL-tenant event to bypass tenant audit RLS", async () => {
+    const client = await runtime.connect();
+    try {
+      await expect(appendAuditEvent(client, {
+        tenantId: null,
+        actorPrincipalId: null,
+        action: "security.authn_failed",
+        targetType: "authentication",
+        outcome: "failure",
+        correlationId: "preauth-must-not-enter-tenant-audit"
+      })).rejects.toMatchObject({ code: "42501" });
+    } finally {
+      client.release();
+    }
+  });
+
+  it("forces RLS on the separate global security event store", async () => {
+    const result = await admin.query<{ relrowsecurity: boolean; relforcerowsecurity: boolean }>(`
+      SELECT relrowsecurity, relforcerowsecurity
+      FROM pg_class
+      WHERE oid = 'public.global_security_events'::regclass
+    `);
+    expect(result.rows).toEqual([{ relrowsecurity: true, relforcerowsecurity: true }]);
   });
 
 });
