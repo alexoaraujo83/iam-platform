@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 
 export type AuditOutcome = "success" | "failure" | "denied";
@@ -108,7 +109,7 @@ export async function appendPreAuthSecurityEvent(
 
   // Generate the identifier in the application so INSERT does not need SELECT
   // privileges for a RETURNING clause on the restricted global event table.
-  const id = (await import("node:crypto")).randomUUID();
+  const id = randomUUID();
   await client.query(
     `INSERT INTO global_security_events
        (id, action, outcome, correlation_id, request_id, metadata)
