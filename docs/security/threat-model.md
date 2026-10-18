@@ -24,6 +24,6 @@ Status: rascunho; deve ser revisado antes do uso em produção.
 
 ## Evidência de CI e exceções
 
-- O workflow de CI executa Gitleaks sobre o checkout e histórico Git e executa `pnpm audit --audit-level high` sobre o lockfile. Um controle só é considerado executado quando o job correspondente conclui com sucesso no commit avaliado.
+- O workflow de CI executa Gitleaks sobre os arquivos do checkout e executa `pnpm audit --audit-level high` sobre o lockfile. A cobertura de todo o histórico Git ainda não foi demonstrada e permanece pendente de uma revisão de baseline histórica. Um controle só é considerado executado quando o job correspondente conclui com sucesso no commit avaliado.
 - Um alerta não deve ser ignorado por simples comentário. Confirmar se é real, remover/rotacionar credenciais reais imediatamente e, para vulnerabilidades aceitas temporariamente, registrar pacote/intervalo afetado, justificativa, mitigação, responsável e data de expiração em uma exceção revisável.
 - Essas verificações de CI não provam que a proteção de push, secret scanning do GitHub ou a configuração de segurança do ambiente implantado estão habilitados. Verificar e registrar esses controles separadamente antes da produção.
