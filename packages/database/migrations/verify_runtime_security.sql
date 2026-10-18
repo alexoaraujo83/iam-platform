@@ -15,11 +15,27 @@ DECLARE
   can_update_global boolean;
   can_delete_global boolean;
   can_truncate_global boolean;
+  bad_memberships text;
+  can_create_public boolean;
 BEGIN
   SELECT rolsuper, rolbypassrls INTO role_super, role_bypass
     FROM pg_roles WHERE rolname = runtime_name;
   IF COALESCE(role_super, true) OR COALESCE(role_bypass, true) THEN
     RAISE EXCEPTION 'runtime_role_has_privileged_attributes:%', runtime_name;
+  END IF;
+
+  SELECT string_agg(r.rolname, ', ' ORDER BY r.rolname) INTO bad_memberships
+    FROM pg_auth_members am
+    JOIN pg_roles m ON m.oid = am.member
+    JOIN pg_roles r ON r.oid = am.roleid
+    WHERE m.rolname = runtime_name;
+  IF bad_memberships IS NOT NULL THEN
+    RAISE EXCEPTION 'runtime_role_has_role_memberships:%', bad_memberships;
+  END IF;
+
+  can_create_public := has_schema_privilege(runtime_name, 'public', 'CREATE');
+  IF can_create_public THEN
+    RAISE EXCEPTION 'runtime_role_can_create_in_public_schema:%', runtime_name;
   END IF;
 
   SELECT string_agg(c.relname, ', ' ORDER BY c.relname) INTO bad_rls
