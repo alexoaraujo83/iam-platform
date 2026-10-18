@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extractBearerToken } from "@iam-platform/identity";
 
@@ -127,6 +128,29 @@ export function createApiHandler(
   }
 
   return (request, response) => {
+    const suppliedCorrelationId = request.headers["x-correlation-id"];
+    const correlationId = typeof suppliedCorrelationId === "string" &&
+      /^[A-Za-z0-9._:-]{1,128}$/.test(suppliedCorrelationId)
+      ? suppliedCorrelationId
+      : randomUUID();
+    const startedAt = performance.now();
+    const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+    const routeLabel = pathname.replace(
+      /^\/v1\/tenants\/[^/]+\/(control-center|context)$/,
+      "/v1/tenants/:tenantId/$1"
+    );
+    response.setHeader("x-correlation-id", correlationId);
+    response.once("finish", () => {
+      console.info(JSON.stringify({
+        level: "info",
+        event: "http_request_completed",
+        correlation_id: correlationId,
+        method: request.method ?? "UNKNOWN",
+        route: routeLabel,
+        status_code: response.statusCode,
+        duration_ms: Math.max(0, Math.round(performance.now() - startedAt))
+      }));
+    });
     void routeRequest(request, response).catch(() => {
       if (!response.headersSent) sendJson(response, 500, { error: "internal_server_error" });
       else response.destroy();
