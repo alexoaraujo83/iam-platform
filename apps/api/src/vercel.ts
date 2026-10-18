@@ -1,10 +1,10 @@
 import { Pool } from "pg";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { authorize } from "@iam-platform/authorization";
-import { withAuthenticatedTenant } from "@iam-platform/database";
+import { appendPreAuthSecurityEvent, withAuthenticatedTenant } from "@iam-platform/database";
 import { createOidcVerifier } from "@iam-platform/identity";
 import type { IdentityProviderConfig } from "@iam-platform/contracts";
-import { createApiHandler, type ResolveTenantContext, type RequiredTenantPermission } from "./app.js";
+import { createApiHandler, type RecordPreAuthSecurityEvent, type ResolveTenantContext, type RequiredTenantPermission } from "./app.js";
 import { normalizeOidcVerificationError } from "./oidc-error.js";
 
 function requiredEnv(name: string): string {
@@ -25,6 +25,7 @@ function positiveIntegerEnv(name: string, fallback: number): number {
 
 let resolveTenantContext: ResolveTenantContext | undefined;
 let checkReadiness: (() => Promise<boolean>) | undefined;
+let recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent | undefined;
 let initializationError: unknown;
 let initialized = false;
 
@@ -73,6 +74,9 @@ function initializeRuntime(): ResolveTenantContext {
         return false;
       }
     };
+    recordPreAuthSecurityEvent = async (event) => {
+      await appendPreAuthSecurityEvent(pool, event);
+    };
 
     resolveTenantContext = async (accessToken, tenantId, requiredPermission?: RequiredTenantPermission) =>
       withAuthenticatedTenant(
@@ -101,6 +105,11 @@ const handler = createApiHandler(
     } catch {
       return false;
     }
+  },
+  async (event) => {
+    initializeRuntime();
+    if (!recordPreAuthSecurityEvent) throw new Error("runtime_initialization_failed");
+    await recordPreAuthSecurityEvent(event);
   }
 );
 

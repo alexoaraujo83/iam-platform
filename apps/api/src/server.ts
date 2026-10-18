@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import { authorize } from "@iam-platform/authorization";
-import { withAuthenticatedTenant } from "@iam-platform/database";
+import { appendPreAuthSecurityEvent, withAuthenticatedTenant } from "@iam-platform/database";
 import { createOidcVerifier } from "@iam-platform/identity";
 import type { IdentityProviderConfig } from "@iam-platform/contracts";
 import { createApiServer, type RequiredTenantPermission } from "./app.js";
@@ -76,6 +76,9 @@ const server = createApiServer(
     } catch {
       return false;
     }
+  },
+  async (event) => {
+    await appendPreAuthSecurityEvent(pool, event);
   }
 );
 
