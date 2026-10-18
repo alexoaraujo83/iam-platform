@@ -21,17 +21,6 @@ function isUuid(value: string | undefined): value is string {
   return !!value && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
-function tokenExpiry(token: string): number | null {
-  try {
-    const part = token.split(".")[1];
-    if (!part) return null;
-    const payload = JSON.parse(Buffer.from(part, "base64url").toString("utf8")) as { exp?: unknown };
-    return typeof payload.exp === "number" ? payload.exp : null;
-  } catch {
-    return null;
-  }
-}
-
 export async function POST(request: NextRequest) {
   const origin = request.headers.get("origin");
   if (!origin || origin !== request.nextUrl.origin) {
@@ -57,6 +46,18 @@ export async function POST(request: NextRequest) {
   if (bypassSecret) commonHeaders["x-vercel-protection-bypass"] = bypassSecret;
 
   const checks: Check[] = [];
+  let apiVersion: string | null = null;
+  let authorizationEvidence: {
+    issuer: string;
+    subject: string;
+    audience: string | string[];
+    algorithm: string;
+    expiresAt: number;
+    tenantId: string;
+    principalId: string;
+    membershipId: string;
+    permissionGranted: boolean;
+  } | null = null;
 
   async function probe(
     id: string,
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest) {
         `${apiBase}/v1/tenants/${encodeURIComponent(tenantId)}/control-center`,
         { method: "GET", headers, cache: "no-store", signal: AbortSignal.timeout(8_000) },
       );
+      apiVersion = response.headers.get("x-iam-api-version") ?? apiVersion;
       const contentType = response.headers.get("content-type") ?? "";
       const payload = contentType.includes("application/json")
         ? await response.json().catch(() => ({})) as Record<string, unknown>
@@ -83,6 +85,33 @@ export async function POST(request: NextRequest) {
       const permissionGranted = permissions.some((permission) =>
         permission?.resource === "iam" && permission?.action === "control_center.read",
       );
+      if (id === "valid-session" && response.status === 200 && isApplicationResponse) {
+        const identity = payload.identityEvidence as Record<string, unknown> | undefined;
+        if (
+          identity &&
+          typeof identity.issuer === "string" &&
+          typeof identity.subject === "string" &&
+          (typeof identity.audience === "string" ||
+            (Array.isArray(identity.audience) && identity.audience.every((item) => typeof item === "string"))) &&
+          typeof identity.algorithm === "string" &&
+          typeof identity.expiresAt === "number" &&
+          typeof payload.tenantId === "string" &&
+          typeof payload.principalId === "string" &&
+          typeof payload.membershipId === "string"
+        ) {
+          authorizationEvidence = {
+            issuer: identity.issuer,
+            subject: identity.subject,
+            audience: identity.audience as string | string[],
+            algorithm: identity.algorithm,
+            expiresAt: identity.expiresAt,
+            tenantId: payload.tenantId,
+            principalId: payload.principalId,
+            membershipId: payload.membershipId,
+            permissionGranted,
+          };
+        }
+      }
       const codeMatches = !expectedError || payload.error === expectedError;
       const expectedBehavior = response.status === expectedStatus && codeMatches &&
         (!requireControlCenterPermission || permissionGranted);
@@ -132,17 +161,13 @@ export async function POST(request: NextRequest) {
     checks.push({ id: "cross-tenant", label: "Acesso a outro tenant deve ser negado (403)", expectedStatus: 403, status: "not_configured", detail: "Configure IAM_DIAGNOSTICS_OTHER_TENANT_ID com um tenant isolado, pertencente a outra identidade e sem associação para a sessão atual." });
   }
 
-  const expiredToken = process.env.IAM_DIAGNOSTICS_EXPIRED_ACCESS_TOKEN?.trim();
-  if (expiredToken) {
-    const exp = tokenExpiry(expiredToken);
-    if (exp === null || exp >= Math.floor(Date.now() / 1000)) {
-      checks.push({ id: "expired-token", label: "Token expirado deve retornar 401", expectedStatus: 401, status: "not_configured", detail: "Fixture inválida ou exp ausente/futuro; nenhum pedido foi enviado. Corrija IAM_DIAGNOSTICS_EXPIRED_ACCESS_TOKEN antes de executar este teste." });
-    } else {
-      await probe("expired-token", "Token expirado deve retornar 401", primaryTenantId, `Bearer ${expiredToken}`, 401, "invalid_access_token");
-    }
-  } else {
-    checks.push({ id: "expired-token", label: "Token expirado deve retornar 401", expectedStatus: 401, status: "not_configured", detail: "Configure IAM_DIAGNOSTICS_EXPIRED_ACCESS_TOKEN apenas com um token de teste expirado; ele será usado somente no servidor e nunca será retornado." });
-  }
+  checks.push({
+    id: "expired-token",
+    label: "Token expirado deve retornar 401",
+    expectedStatus: 401,
+    status: "not_configured",
+    detail: "O teste criptográfico de token expirado é gerado com chaves locais controladas no CI. O E2E de Preview requer uma fixture efêmera específica do ambiente; nenhum JWT manual permanente é lido de variáveis de ambiente."
+  });
 
   const failed = checks.some((check) => check.status === "fail");
   const blocked = checks.some((check) => check.status === "blocked");
@@ -150,6 +175,13 @@ export async function POST(request: NextRequest) {
   return safeResult(200, {
     ok: !failed && !blocked && !notConfigured,
     outcome: failed ? "security_checks_failed" : blocked ? "security_checks_inconclusive" : notConfigured ? "security_checks_partially_configured" : "security_checks_passed",
+    execution: {
+      executedAtUtc: new Date().toISOString(),
+      environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "unknown",
+      webCommit: process.env.VERCEL_GIT_COMMIT_SHA ?? "unknown",
+      apiVersion,
+    },
+    authorizationEvidence,
     checks,
   });
 }
