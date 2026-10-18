@@ -68,6 +68,10 @@
   line-height: 1.6;
 }
 
+.footer {
+  margin-top: 36px;
+}
+
 .button,
 .secondary {
   display: inline-flex;
