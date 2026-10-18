@@ -11,6 +11,13 @@ export interface TenantContextResponse {
   readonly principalId: string;
   readonly membershipId: string;
   readonly permissions: readonly { readonly resource: string; readonly action: string }[];
+  readonly identityEvidence?: {
+    readonly issuer: string;
+    readonly subject: string;
+    readonly audience: string | readonly string[];
+    readonly algorithm: string;
+    readonly expiresAt: number;
+  };
 }
 
 export type ResolveTenantContext = (
@@ -94,7 +101,8 @@ export function createApiHandler(
         tenantId: context.tenantId,
         principalId: context.principalId,
         membershipId: context.membershipId,
-        permissions: context.permissions
+        permissions: context.permissions,
+        ...(context.identityEvidence ? { identityEvidence: context.identityEvidence } : {})
       });
     } catch (error) {
       const errorCode = error instanceof Error ? error.message.split(":", 1)[0] : undefined;
