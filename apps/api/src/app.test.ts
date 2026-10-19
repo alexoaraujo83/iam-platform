@@ -179,8 +179,10 @@ describe("IAM HTTP API", () => {
     servers.push(server);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as AddressInfo;
-    const responses = await Promise.all(Array.from({ length: 12 }, () =>
-      fetch(`http://127.0.0.1:${address.port}/v1/tenants/11111111-1111-4111-8111-111111111111/context`)
+    const responses = await Promise.all(Array.from({ length: 12 }, (_, index) =>
+      fetch(`http://127.0.0.1:${address.port}/v1/tenants/11111111-1111-4111-8111-111111111111/context`, {
+        headers: { "x-forwarded-for": `198.51.100.${index + 1}` }
+      })
     ));
     expect(responses.every((response) => response.status === 401)).toBe(true);
     expect(recordSecurityEvent).toHaveBeenCalledTimes(10);
