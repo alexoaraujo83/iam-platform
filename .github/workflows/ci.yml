@@ -29,7 +29,7 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/iam_test
-      IAM_RUNTIME_DATABASE_URL: postgres://iam_runtime:runtime-test-only@localhost:5432/iam_test
+      IAM_RUNTIME_DATABASE_URL: postgres://iam_app_runtime:runtime-test-only@localhost:5432/iam_test
       IAM_DATABASE_INTEGRATION: "1"
       # Disposable values let Next.js build/import the SDK in CI; never use them in deployments.
       AUTH0_DOMAIN: example.us.auth0.com
