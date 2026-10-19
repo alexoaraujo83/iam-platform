@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 
 export type AuditOutcome = "success" | "failure" | "denied";
@@ -64,5 +65,55 @@ export async function appendAuditEvent(client: Pick<PoolClient, "query">, event:
   );
   const id = result.rows[0]?.id;
   if (!id) throw new Error("audit_event_insert_failed");
+  return id;
+}
+
+export interface PreAuthSecurityEvent {
+  readonly action: string;
+  readonly outcome: AuditOutcome;
+  readonly correlationId: string;
+  readonly requestId?: string | null;
+  readonly metadata?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * Append a global/pre-auth security event without tenant context.
+ * This writes only to the separate global_security_events table, which has no
+ * tenant or actor columns and grants the runtime INSERT-only access. Never pass
+ * credentials, tokens, authorization headers, raw claims or secrets in metadata.
+ */
+export async function appendPreAuthSecurityEvent(
+  client: Pick<PoolClient, "query">,
+  event: PreAuthSecurityEvent
+): Promise<string> {
+  if (!event || !SAFE_ACTION.test(event.action)) throw new Error("invalid_audit_event");
+  if (!["success", "failure", "denied"].includes(event.outcome)) {
+    throw new Error("invalid_audit_outcome");
+  }
+  if (!event.correlationId?.trim() || event.correlationId.length > 200) {
+    throw new Error("invalid_audit_correlation_id");
+  }
+  const metadata = event.metadata ?? {};
+  if (metadata === null || Array.isArray(metadata) || typeof metadata !== "object") {
+    throw new Error("invalid_audit_metadata");
+  }
+
+  let encodedMetadata: string;
+  try {
+    encodedMetadata = JSON.stringify(metadata);
+  } catch {
+    throw new Error("invalid_audit_metadata");
+  }
+  if (encodedMetadata.length > 16_384) throw new Error("audit_metadata_too_large");
+
+  // Generate the identifier in the application so INSERT does not need SELECT
+  // privileges for a RETURNING clause on the restricted global event table.
+  const id = randomUUID();
+  await client.query(
+    `INSERT INTO global_security_events
+       (id, action, outcome, correlation_id, request_id, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+    [id, event.action, event.outcome, event.correlationId, event.requestId ?? null, encodedMetadata]
+  );
   return id;
 }

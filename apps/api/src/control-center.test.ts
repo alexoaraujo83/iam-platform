@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
-import { createApiServer, type ResolveTenantContext } from "./app.js";
+import { createApiServer, type RecordPreAuthSecurityEvent, type ResolveTenantContext } from "./app.js";
 
 const tenantId = "11111111-1111-4111-8111-111111111111";
 const context = {
@@ -10,9 +10,10 @@ const context = {
   permissions: [{ resource: "iam", action: "control_center.read" }]
 };
 const servers: ReturnType<typeof createApiServer>[] = [];
+const recordSecurityEvent: RecordPreAuthSecurityEvent = async () => undefined;
 
 async function requestControlCenter(resolver: ResolveTenantContext, authorization?: string): Promise<Response> {
-  const server = createApiServer(resolver);
+  const server = createApiServer(resolver, async () => true, recordSecurityEvent);
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as AddressInfo;

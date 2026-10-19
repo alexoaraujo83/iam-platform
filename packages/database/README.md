@@ -45,6 +45,12 @@ Executar esta suíte somente contra banco PostgreSQL descartável, definindo `IA
 
 `src/audit.ts` exporta `appendAuditEvent(client, event)`. Invocá-lo com a mesma transação/cliente da alteração sensível quando a atomicidade for necessária. Erros de persistência são propagados; os chamadores não devem descartar falhas de auditoria silenciosamente. Não incluir tokens, credenciais, cabeçalhos de autorização ou segredos nos metadados. A migração `0002_durable_audit_controls.sql` adiciona campos limitados de metadados JSON/ID de requisição e bloqueia UPDATE/DELETE com SQLSTATE `42501`; as permissões de runtime devem seguir o privilégio mínimo. Aplicar migrações em ordem usando o proprietário de migração.
 
+## Eventos pré-autenticação/globais
+
+A migração `0004_pre_auth_security_events.sql` cria `global_security_events`, sem colunas de tenant ou ator. `appendPreAuthSecurityEvent` grava apenas ação, resultado, correlação/requisição e metadados mínimos. A função de runtime recebe INSERT, mas não SELECT/UPDATE/DELETE; RLS e FORCE RLS permanecem ativos. Eventos sem tenant confiável nunca devem ser inseridos em `audit_events` com `tenant_id = NULL`; o teste de integração confirma que esse INSERT continua negado.
+
+Antes de conectar esse helper a todos os caminhos de falha de autenticação, definir limites/controle de taxa para evitar amplificação de escrita por tráfego anônimo, alertas para falha de persistência e uma política explícita por classe de evento. Uma falha de auditoria não pode transformar um token inválido em autenticação aceita. A integração em handlers de produção e o teste de ponta a ponta ainda são pendentes.
+
 ## Requisitos de implantação
 
 - Aplicar migrações com proprietário dedicado de esquema/migração.

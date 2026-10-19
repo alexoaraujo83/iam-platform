@@ -47,12 +47,14 @@ Testes PostgreSQL no CI são necessários, mas não constituem evidência da imp
 
 ## 3. Controles de auditoria durável
 
-O repositório inclui `packages/database/src/audit.ts`, migração append-only (`0002_durable_audit_controls.sql`) e testes unitários/de integração. Antes da produção, integrar `appendAuditEvent` a cada fluxo sensível e persistir eventos relevantes à segurança (resultados de autenticação, mudanças de associação, negações de permissão, administração privilegiada, negações entre tenants e alterações de configuração) em armazenamento PostgreSQL append-only e transacionalmente consistente.
+O repositório inclui `packages/database/src/audit.ts`, migrações append-only (`0002_durable_audit_controls.sql` e `0004_pre_auth_security_events.sql`) e testes unitários/de integração. Antes da produção, integrar `appendAuditEvent` a cada fluxo sensível e persistir eventos relevantes à segurança (resultados de autenticação, mudanças de associação, negações de permissão, administração privilegiada, negações entre tenants e alterações de configuração) em armazenamento PostgreSQL append-only e transacionalmente consistente.
 
-Campos mínimos: ID de evento gerado, data/hora UTC, resultado, ação, identidade autora (nula para eventos não autenticados), tenant (nulo quando ainda não confiável), tipo/ID do alvo, ID de correlação/requisição e metadados mínimos redigidos. Nunca armazenar tokens de acesso, credenciais, cabeçalhos de autorização, segredos ou dados pessoais desnecessários.
+Para eventos já autenticados e vinculados a um tenant validado, usar `audit_events` com contexto transacional de tenant. Não inserir eventos pré-autenticação com `tenant_id = NULL` nessa tabela: a política RLS deve continuar negando esse caminho.
+
+Para eventos pré-autenticação/globais (por exemplo, falha de validação de token), usar `global_security_events`, introduzida pela migração `0004_pre_auth_security_events.sql`. Essa tabela não tem colunas de tenant ou ator, tem RLS + FORCE RLS, e o runtime recebe apenas INSERT — sem SELECT, UPDATE ou DELETE. O helper `appendPreAuthSecurityEvent` aceita apenas ação, resultado, correlação/requisição e metadados mínimos; não passe claims não verificados, tokens, credenciais, cabeçalhos ou segredos. Essa separação reduz confusão de tenant, mas não substitui a integração nos fluxos de autenticação nem os controles de retenção/monitoramento.
 
 - Definir retenção, exportação, revisão de acesso, alertas e responsáveis pela resposta a incidentes.
-- A função de runtime pode receber INSERT e, se necessário, SELECT conforme política; não pode UPDATE/DELETE linhas de auditoria nem alterar o esquema de auditoria.
+- Em `audit_events`, o runtime pode receber INSERT e SELECT conforme necessidade, mas não UPDATE/DELETE/TRUNCATE nem privilégios de alteração de esquema. Em `global_security_events`, o runtime recebe apenas INSERT e não pode ler ou modificar linhas; acesso de leitura, exportação e retenção precisam de uma identidade operacional separada e revisada.
 - Verificar restrições, rollback transacional, duplicação/repetição e política explícita de falha segura/falha tolerada quando a escrita da auditoria falhar, por classe de evento.
 - Alertar sobre tokens inválidos repetidos, indisponibilidade JWKS, negações entre tenants, falhas de auditoria, falhas de migração e encerramentos inesperados.
 - Documentar detecção de adulteração e reconciliação após restauração. A existência de uma tabela não comprova operação de auditoria durável.
