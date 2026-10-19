@@ -419,14 +419,15 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
       runtime.query("DELETE FROM global_security_events WHERE id = $1", [eventId!])
     ).rejects.toMatchObject({ code: "42501" });
 
-    const grants = await admin.query<{ can_insert: boolean; can_select: boolean; can_update: boolean; can_delete: boolean }>(`
+    const grants = await admin.query<{ can_insert: boolean; can_select: boolean; can_update: boolean; can_delete: boolean; can_truncate: boolean }>(`
       SELECT
         has_table_privilege('iam_app_runtime', 'public.global_security_events', 'INSERT') AS can_insert,
         has_table_privilege('iam_app_runtime', 'public.global_security_events', 'SELECT') AS can_select,
         has_table_privilege('iam_app_runtime', 'public.global_security_events', 'UPDATE') AS can_update,
-        has_table_privilege('iam_app_runtime', 'public.global_security_events', 'DELETE') AS can_delete
+        has_table_privilege('iam_app_runtime', 'public.global_security_events', 'DELETE') AS can_delete,
+        has_table_privilege('iam_app_runtime', 'public.global_security_events', 'TRUNCATE') AS can_truncate
     `);
-    expect(grants.rows[0]).toEqual({ can_insert: true, can_select: false, can_update: false, can_delete: false });
+    expect(grants.rows[0]).toEqual({ can_insert: true, can_select: false, can_update: false, can_delete: false, can_truncate: false });
   });
 
   it("does not allow a pre-auth NULL-tenant event to bypass tenant audit RLS", async () => {
