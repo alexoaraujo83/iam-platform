@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extractBearerToken } from "@iam-platform/identity";
+import type { PreAuthSecurityEvent } from "@iam-platform/database";
 
 export interface RequiredTenantPermission {
   readonly resource: string;
@@ -27,6 +28,7 @@ export type ResolveTenantContext = (
   requiredPermission?: RequiredTenantPermission
 ) => Promise<TenantContextResponse | null>;
 export type CheckReadiness = () => Promise<boolean>;
+export type RecordPreAuthSecurityEvent = (event: PreAuthSecurityEvent) => Promise<void>;
 export type ApiRequestHandler = (request: IncomingMessage, response: ServerResponse) => void;
 
 const CONTEXT_PERMISSION: RequiredTenantPermission = { resource: "iam", action: "context.read" };
@@ -44,8 +46,53 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
 
 export function createApiHandler(
   resolveTenantContext: ResolveTenantContext,
-  checkReadiness: CheckReadiness = async () => false
+  checkReadiness: CheckReadiness,
+  recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent
 ): ApiRequestHandler {
+  // Bound unauthenticated write amplification per socket peer. Do not trust
+  // X-Forwarded-For here; it is only safe behind a separately trusted proxy.
+  const auditWindows = new Map<string, { startedAt: number; count: number }>();
+  const auditWindowMs = 60_000;
+  const auditWindowLimit = 10;
+
+  async function recordAuthFailure(request: IncomingMessage, reason: string): Promise<boolean> {
+    const now = Date.now();
+    const key = request.socket.remoteAddress ?? "unknown";
+    let window = auditWindows.get(key);
+    if (!window || now - window.startedAt >= auditWindowMs) {
+      window = { startedAt: now, count: 0 };
+      auditWindows.set(key, window);
+    }
+    if (window.count >= auditWindowLimit) return true;
+    window.count += 1;
+
+    // Keep the map bounded even if many source addresses connect.
+    if (auditWindows.size > 4096) {
+      for (const [address, current] of auditWindows) {
+        if (now - current.startedAt >= auditWindowMs) auditWindows.delete(address);
+        if (auditWindows.size <= 3072) break;
+      }
+    }
+
+    const rawRequestId = request.headers["x-request-id"];
+    const requestId = typeof rawRequestId === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(rawRequestId)
+      ? rawRequestId
+      : null;
+    try {
+      await recordPreAuthSecurityEvent({
+        action: "security.authn_failed",
+        outcome: "failure",
+        correlationId: randomUUID(),
+        requestId,
+        metadata: { reason }
+      });
+      return true;
+    } catch {
+      // Authentication remains denied if the durable audit store is unavailable.
+      return false;
+    }
+  }
+
   async function routeRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? "/", "http://localhost");
     const routePath = url.pathname === "/api/index" ? (url.searchParams.get("path") ?? "/") : url.pathname;
@@ -74,7 +121,8 @@ export function createApiHandler(
     const requiredPermission = controlCenterMatch ? CONTROL_CENTER_PERMISSION : CONTEXT_PERMISSION;
     const accessToken = extractBearerToken(request.headers.authorization);
     if (!accessToken) {
-      sendJson(response, 401, { error: "invalid_or_missing_bearer_token" });
+      const audited = await recordAuthFailure(request, "missing_or_invalid_bearer");
+      sendJson(response, audited ? 401 : 503, { error: audited ? "invalid_or_missing_bearer_token" : "security_audit_unavailable" });
       return;
     }
 
@@ -112,7 +160,8 @@ export function createApiHandler(
         return;
       }
       if (errorCode === "invalid_access_token") {
-        sendJson(response, 401, { error: "invalid_access_token" });
+        const audited = await recordAuthFailure(request, "invalid_access_token");
+        sendJson(response, audited ? 401 : 503, { error: audited ? "invalid_access_token" : "security_audit_unavailable" });
         return;
       }
       if (errorCode === "identity_provider_unavailable") {
@@ -160,7 +209,8 @@ export function createApiHandler(
 
 export function createApiServer(
   resolveTenantContext: ResolveTenantContext,
-  checkReadiness: CheckReadiness = async () => false
+  checkReadiness: CheckReadiness,
+  recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent
 ): Server {
-  return createServer(createApiHandler(resolveTenantContext, checkReadiness));
+  return createServer(createApiHandler(resolveTenantContext, checkReadiness, recordPreAuthSecurityEvent));
 }
