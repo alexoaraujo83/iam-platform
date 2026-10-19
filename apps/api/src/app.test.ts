@@ -42,6 +42,17 @@ describe("IAM HTTP API", () => {
     expect(checkReadiness).not.toHaveBeenCalled();
   });
 
+  it("preserves a safe correlation ID and returns API version metadata", async () => {
+    const response = await requestApi(
+      vi.fn<ResolveTenantContext>(),
+      "/health",
+      { "x-correlation-id": "diagnostic-correlation-123" }
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-correlation-id")).toBe("diagnostic-correlation-123");
+    expect(response.headers.get("x-iam-api-version")).toBeTruthy();
+  });
+
   it("reports readiness only when the dependency check succeeds", async () => {
     const checkReadiness = vi.fn<CheckReadiness>().mockResolvedValue(true);
     const response = await requestApi(vi.fn<ResolveTenantContext>(), "/health/ready", undefined, checkReadiness);
@@ -87,6 +98,27 @@ describe("IAM HTTP API", () => {
     expect(await response.json()).toEqual(context);
     expect(resolver).toHaveBeenCalledWith("valid-token", "11111111-1111-4111-8111-111111111111");
     expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("returns only verified identity metadata with authorized tenant context", async () => {
+    const verifiedContext: TenantContextResponse = {
+      ...context,
+      identityEvidence: {
+        issuer: "https://issuer.example.test/",
+        subject: "external-subject-1",
+        audience: "urn:iam-platform:test-api",
+        algorithm: "RS256",
+        expiresAt: 1_900_000_000
+      }
+    };
+    const response = await requestApi(
+      vi.fn<ResolveTenantContext>().mockResolvedValue(verifiedContext),
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/context",
+      { authorization: "Bearer valid-token" }
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(verifiedContext);
+    expect(JSON.stringify(verifiedContext)).not.toContain("token");
   });
 
   it("denies a tenant without active membership", async () => {
@@ -143,6 +175,55 @@ describe("IAM HTTP API", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "invalid_tenant_id" });
     expect(resolver).not.toHaveBeenCalled();
+  });
+
+  it("requires the control-center permission on the control-center endpoint", async () => {
+    const controlCenterContext: TenantContextResponse = {
+      ...context,
+      permissions: [{ resource: "iam", action: "control_center.read" }]
+    };
+    const resolver = vi.fn<ResolveTenantContext>().mockResolvedValue(controlCenterContext);
+    const response = await requestApi(
+      resolver,
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center",
+      { authorization: "Bearer valid-token" }
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(controlCenterContext);
+    expect(resolver).toHaveBeenCalledWith(
+      "valid-token",
+      "11111111-1111-4111-8111-111111111111",
+      { resource: "iam", action: "control_center.read" }
+    );
+  });
+
+  it("denies control-center access when the required permission is missing", async () => {
+    const resolver = vi.fn<ResolveTenantContext>().mockRejectedValue(new Error("authorization_denied"));
+    const response = await requestApi(
+      resolver,
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center",
+      { authorization: "Bearer valid-token" }
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "permission_denied" });
+    expect(resolver).toHaveBeenCalledWith(
+      "valid-token",
+      "11111111-1111-4111-8111-111111111111",
+      { resource: "iam", action: "control_center.read" }
+    );
+  });
+
+  it("denies control-center access when the tenant has no active membership", async () => {
+    const response = await requestApi(
+      async () => null,
+      "/v1/tenants/22222222-2222-4222-8222-222222222222/control-center",
+      { authorization: "Bearer valid-token" }
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "active_membership_required" });
   });
 
   it("returns 404 for unknown routes", async () => {
