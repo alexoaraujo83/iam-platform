@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
-import { createApiServer, type CheckReadiness, type RecordPreAuthSecurityEvent, type ResolveTenantContext, type TenantContextResponse } from "./app.js";
+import { createApiServer, createPreAuthAuditLimiter, type CheckReadiness, type RecordPreAuthSecurityEvent, type ResolveTenantContext, type TenantContextResponse } from "./app.js";
 
 const context: TenantContextResponse = {
   tenantId: "11111111-1111-4111-8111-111111111111",
@@ -30,6 +30,63 @@ afterEach(async () => {
       server.close((error) => error ? reject(error) : resolve())
     )
   ));
+});
+
+describe("pre-auth audit limiter", () => {
+  it("enforces a hard entry cap without evicting active peer windows", () => {
+    const shouldRecord = createPreAuthAuditLimiter(2, 60_000, 10);
+
+    expect(shouldRecord("peer-a", 1_000)).toBe(true);
+    expect(shouldRecord("peer-b", 1_000)).toBe(true);
+    expect(shouldRecord("peer-c", 1_000)).toBe(false);
+    // Existing active peers retain their windows while the map is saturated.
+    expect(shouldRecord("peer-a", 1_100)).toBe(true);
+    expect(shouldRecord("peer-b", 1_100)).toBe(true);
+    expect(shouldRecord("peer-c", 1_100)).toBe(false);
+    // Once windows expire, stale entries are pruned and a new peer can proceed.
+    expect(shouldRecord("peer-c", 61_000)).toBe(true);
+  });
+
+  it("limits each peer to the configured number of events per window", () => {
+    const shouldRecord = createPreAuthAuditLimiter(4, 60_000, 2);
+
+    expect(shouldRecord("peer-a", 1_000)).toBe(true);
+    expect(shouldRecord("peer-a", 1_001)).toBe(true);
+    expect(shouldRecord("peer-a", 1_002)).toBe(false);
+    expect(shouldRecord("peer-a", 61_000)).toBe(true);
+  });
+
+  it("throttles suppression notifications and omits peer identifiers", () => {
+    const onSuppressed = vi.fn();
+    const shouldRecord = createPreAuthAuditLimiter(1, 60_000, 1, onSuppressed);
+
+    expect(shouldRecord("sensitive-peer-a", 1_000)).toBe(true);
+    expect(shouldRecord("sensitive-peer-b", 1_001)).toBe(false);
+    expect(shouldRecord("sensitive-peer-c", 1_002)).toBe(false);
+    expect(onSuppressed).toHaveBeenCalledOnce();
+    expect(onSuppressed).toHaveBeenCalledWith("entry_cap");
+
+    // The warning is throttled even when additional unique peers are suppressed.
+    expect(shouldRecord("sensitive-peer-d", 61_000)).toBe(true);
+    expect(onSuppressed).toHaveBeenCalledOnce();
+  });
+
+  it("throttles per-peer rate-limit notifications", () => {
+    const onSuppressed = vi.fn();
+    const shouldRecord = createPreAuthAuditLimiter(4, 60_000, 1, onSuppressed);
+
+    expect(shouldRecord("peer-a", 1_000)).toBe(true);
+    expect(shouldRecord("peer-a", 1_001)).toBe(false);
+    expect(shouldRecord("peer-a", 1_002)).toBe(false);
+    expect(onSuppressed).toHaveBeenCalledOnce();
+    expect(onSuppressed).toHaveBeenCalledWith("peer_limit");
+  });
+
+  it("rejects invalid limiter bounds", () => {
+    expect(() => createPreAuthAuditLimiter(0)).toThrow("invalid_audit_limiter_max_entries");
+    expect(() => createPreAuthAuditLimiter(1, 0)).toThrow("invalid_audit_limiter_window_ms");
+    expect(() => createPreAuthAuditLimiter(1, 1, 0)).toThrow("invalid_audit_limiter_per_window_limit");
+  });
 });
 
 describe("IAM HTTP API", () => {
@@ -148,8 +205,10 @@ describe("IAM HTTP API", () => {
     servers.push(server);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as AddressInfo;
-    const responses = await Promise.all(Array.from({ length: 12 }, () =>
-      fetch(`http://127.0.0.1:${address.port}/v1/tenants/11111111-1111-4111-8111-111111111111/context`)
+    const responses = await Promise.all(Array.from({ length: 12 }, (_, index) =>
+      fetch(`http://127.0.0.1:${address.port}/v1/tenants/11111111-1111-4111-8111-111111111111/context`, {
+        headers: { "x-forwarded-for": `198.51.100.${index + 1}` }
+      })
     ));
     expect(responses.every((response) => response.status === 401)).toBe(true);
     expect(recordSecurityEvent).toHaveBeenCalledTimes(10);
