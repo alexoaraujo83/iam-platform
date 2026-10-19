@@ -59,16 +59,32 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 }
 
 const server = createApiServer(
-  async (accessToken, tenantId, requiredPermission) =>
-    withAuthenticatedTenant(
+  async (accessToken, tenantId, requiredPermission) => {
+    let verifiedIdentity: Awaited<ReturnType<typeof verifyAccessToken>> | undefined;
+    const context = await withAuthenticatedTenant(
       pool,
-      verifyAccessToken,
+      async (token) => {
+        verifiedIdentity = await verifyAccessToken(token);
+        return verifiedIdentity;
+      },
       accessToken,
       tenantId,
       requiredPermission ?? { resource: "iam", action: "context.read" },
       (authorizationContext, permission) => authorize(authorizationContext, permission),
       async (_client, membership) => membership
-    ),
+    );
+    if (!context || !verifiedIdentity) return null;
+    return {
+      ...context,
+      identityEvidence: {
+        issuer: verifiedIdentity.issuer,
+        subject: verifiedIdentity.subject,
+        audience: verifiedIdentity.audience,
+        algorithm: verifiedIdentity.algorithm,
+        expiresAt: verifiedIdentity.expiresAt
+      }
+    };
+  },
   async () => {
     try {
       await pool.query("SELECT 1");

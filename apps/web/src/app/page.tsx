@@ -54,8 +54,6 @@ export default function Home() {
         <Suspense fallback={<SessionActionsFallback />}>
           <SessionActions />
         </Suspense>
-
-        <p className={styles.footer}>Provider setup requires valid server-side environment variables.</p>
       </section>
     </main>
   );
