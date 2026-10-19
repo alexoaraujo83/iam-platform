@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
-import { createApiServer, type CheckReadiness, type ResolveTenantContext, type TenantContextResponse } from "./app.js";
+import { createApiServer, type CheckReadiness, type RecordPreAuthSecurityEvent, type ResolveTenantContext, type TenantContextResponse } from "./app.js";
 
 const context: TenantContextResponse = {
   tenantId: "11111111-1111-4111-8111-111111111111",
@@ -14,9 +14,10 @@ async function requestApi(
   resolver: ResolveTenantContext,
   path: string,
   headers?: Record<string, string>,
-  checkReadiness: CheckReadiness = async () => true
+  checkReadiness: CheckReadiness = async () => true,
+  recordSecurityEvent: RecordPreAuthSecurityEvent = async () => undefined
 ): Promise<Response> {
-  const server = createApiServer(resolver, checkReadiness);
+  const server = createApiServer(resolver, checkReadiness, recordSecurityEvent);
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as AddressInfo;
@@ -87,6 +88,71 @@ describe("IAM HTTP API", () => {
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: "invalid_or_missing_bearer_token" });
     expect(resolver).not.toHaveBeenCalled();
+  });
+
+  it("records a sanitized pre-auth event for missing bearer credentials", async () => {
+    const recordSecurityEvent = vi.fn<RecordPreAuthSecurityEvent>().mockResolvedValue(undefined);
+    const response = await requestApi(
+      vi.fn<ResolveTenantContext>(),
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/context",
+      {},
+      async () => true,
+      recordSecurityEvent
+    );
+    expect(response.status).toBe(401);
+    expect(recordSecurityEvent).toHaveBeenCalledOnce();
+    expect(recordSecurityEvent.mock.calls[0]?.[0]).toMatchObject({
+      action: "security.authn_failed",
+      outcome: "failure",
+      metadata: { reason: "missing_or_invalid_bearer" }
+    });
+    expect(JSON.stringify(recordSecurityEvent.mock.calls[0]?.[0])).not.toContain("authorization");
+  });
+
+  it("fails closed with sanitized 503 when pre-auth audit persistence fails", async () => {
+    const recordSecurityEvent = vi.fn<RecordPreAuthSecurityEvent>().mockRejectedValue(new Error("database secret"));
+    const response = await requestApi(
+      vi.fn<ResolveTenantContext>(),
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/context",
+      {},
+      async () => true,
+      recordSecurityEvent
+    );
+    expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body).toEqual({ error: "security_audit_unavailable" });
+    expect(JSON.stringify(body)).not.toContain("database secret");
+  });
+
+  it("records invalid token failures without storing the token", async () => {
+    const recordSecurityEvent = vi.fn<RecordPreAuthSecurityEvent>().mockResolvedValue(undefined);
+    const response = await requestApi(
+      async () => { throw new Error("invalid_access_token:provider detail"); },
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/context",
+      { authorization: "Bearer do-not-store-this-token" },
+      async () => true,
+      recordSecurityEvent
+    );
+    expect(response.status).toBe(401);
+    expect(recordSecurityEvent).toHaveBeenCalledOnce();
+    expect(JSON.stringify(recordSecurityEvent.mock.calls[0]?.[0])).not.toContain("do-not-store-this-token");
+    expect(recordSecurityEvent.mock.calls[0]?.[0]).toMatchObject({
+      action: "security.authn_failed",
+      metadata: { reason: "invalid_access_token" }
+    });
+  });
+
+  it("bounds pre-auth audit writes to ten events per peer per minute", async () => {
+    const recordSecurityEvent = vi.fn<RecordPreAuthSecurityEvent>().mockResolvedValue(undefined);
+    const server = createApiServer(vi.fn<ResolveTenantContext>(), async () => true, recordSecurityEvent);
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address() as AddressInfo;
+    const responses = await Promise.all(Array.from({ length: 12 }, () =>
+      fetch(`http://127.0.0.1:${address.port}/v1/tenants/11111111-1111-4111-8111-111111111111/context`)
+    ));
+    expect(responses.every((response) => response.status === 401)).toBe(true);
+    expect(recordSecurityEvent).toHaveBeenCalledTimes(10);
   });
 
   it("returns context only when the resolver authorizes the tenant", async () => {
