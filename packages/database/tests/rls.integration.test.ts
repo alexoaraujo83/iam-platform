@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { Pool, type PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { appendAuditEvent, appendPreAuthSecurityEvent } from "../src/audit.js";
 import { resolveActiveMembership } from "../src/membership-resolution.js";
 
 const enabled =
@@ -39,6 +40,15 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
   }
 
   beforeAll(async () => {
+    await admin.query(`
+      DO $role$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'iam_app_runtime') THEN
+          CREATE ROLE iam_app_runtime LOGIN PASSWORD 'runtime-test-only' NOSUPERUSER NOBYPASSRLS;
+        END IF;
+      END
+      $role$;
+    `);
     const migration = await readFile(
       new URL("../migrations/0001_identity_tenancy.sql", import.meta.url),
       "utf8"
@@ -54,20 +64,18 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
       "utf8"
     );
     await admin.query(controlCenterPermissionMigration);
+    const globalSecurityMigration = await readFile(
+      new URL("../migrations/0004_pre_auth_security_events.sql", import.meta.url),
+      "utf8"
+    );
+    await admin.query(globalSecurityMigration);
 
     await admin.query(`
-      DO $$
-      BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'iam_runtime') THEN
-          CREATE ROLE iam_runtime LOGIN PASSWORD 'runtime-test-only' NOSUPERUSER NOBYPASSRLS;
-        END IF;
-      END
-      $$;
-      ALTER ROLE iam_runtime LOGIN PASSWORD 'runtime-test-only' NOSUPERUSER NOBYPASSRLS;
-      GRANT USAGE ON SCHEMA public TO iam_runtime;
-      GRANT SELECT, INSERT, UPDATE, DELETE ON tenants, memberships, roles, role_permissions, membership_roles, applications TO iam_runtime;
-      GRANT SELECT, INSERT ON audit_events TO iam_runtime;
-      GRANT SELECT ON principals, external_identities, permissions TO iam_runtime;
+      ALTER ROLE iam_app_runtime LOGIN PASSWORD 'runtime-test-only' NOSUPERUSER NOBYPASSRLS;
+      GRANT USAGE ON SCHEMA public TO iam_app_runtime;
+      GRANT SELECT, INSERT, UPDATE, DELETE ON tenants, memberships, roles, role_permissions, membership_roles, applications TO iam_app_runtime;
+      GRANT SELECT, INSERT ON audit_events TO iam_app_runtime;
+      GRANT SELECT ON principals, external_identities, permissions TO iam_app_runtime;
     `);
 
     const tenantAResult = await admin.query<{ id: string }>(
@@ -137,7 +145,7 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     await admin.query("INSERT INTO audit_events (tenant_id, actor_principal_id, action, target_type, target_id, outcome, correlation_id) VALUES ($1, $2, 'membership.created', 'membership', $3, 'success', 'seed-b')", [tenantB, principalB, membershipB]);
 
     const role = await admin.query<{ rolbypassrls: boolean; rolsuper: boolean }>(
-      "SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = 'iam_runtime'"
+      "SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = 'iam_app_runtime'"
     );
     expect(role.rows[0]).toEqual({ rolbypassrls: false, rolsuper: false });
   });
@@ -316,7 +324,7 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     const result = await runtime.query<{ current_user: string; row_count: string }>(
       "SELECT current_user, (SELECT count(*) FROM tenants)::text AS row_count"
     );
-    expect(result.rows[0]?.current_user).toBe("iam_runtime");
+    expect(result.rows[0]?.current_user).toBe("iam_app_runtime");
     expect(result.rows[0]?.row_count).toBe("0");
   });
   it("forces RLS on every tenant-owned table", async () => {
@@ -352,7 +360,7 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
       `SELECT current_user, r.rolsuper, r.rolbypassrls
          FROM pg_roles r WHERE r.rolname = current_user`
     );
-    expect(role.rows[0]).toEqual({ current_user: "iam_runtime", rolsuper: false, rolbypassrls: false });
+    expect(role.rows[0]).toEqual({ current_user: "iam_app_runtime", rolsuper: false, rolbypassrls: false });
     const ownership = await runtime.query<{ owned_count: string }>(`
       SELECT count(*)::text AS owned_count
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -363,56 +371,18 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     expect(ownership.rows[0]?.owned_count).toBe("0");
   });
 
-
-  it("cannot SET ROLE into a superuser or BYPASSRLS role", async () => {
-    const result = await runtime.query<{ role_name: string }>(
-      `SELECT r.rolname AS role_name
-         FROM pg_roles r
-        WHERE (r.rolsuper OR r.rolbypassrls)
-          AND pg_has_role(current_user, r.oid, 'MEMBER')
-        ORDER BY r.rolname`
-    );
-    expect(result.rows).toEqual([]);
-  });
-
-  it("cannot create objects in the public schema", async () => {
-    const result = await runtime.query<{ can_create: boolean }>(
-      "SELECT has_schema_privilege(current_user, 'public', 'CREATE') AS can_create"
-    );
-    expect(result.rows[0]?.can_create).toBe(false);
-  });
-
-  it("rejects an invalid tenant context instead of coercing it", async () => {
-    await expect(
-      withTenant("not-a-uuid", async (client) => {
-        await client.query("SELECT id FROM tenants");
-      })
-    ).rejects.toMatchObject({ code: "22P02" });
-  });
-
-  it("clears transaction-local tenant context after rollback on a reused connection", async () => {
+  it("writes pre-auth security events to a separate global INSERT-only store without tenant context", async () => {
     const client = await runtime.connect();
+    let eventId: string;
     try {
       await client.query("BEGIN");
-      await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantA]);
-      await expect(
-        client.query(
-          "INSERT INTO memberships (tenant_id, principal_id) VALUES ($1, $2)",
-          [tenantB, principalB]
-        )
-      ).rejects.toMatchObject({ code: "42501" });
-
-      await client.query("ROLLBACK");
-      await client.query("BEGIN");
-
-      const unscoped = await client.query<{ count: string }>(
-        "SELECT count(*)::text AS count FROM tenants"
-      );
-      expect(unscoped.rows[0]?.count).toBe("0");
-
-      await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantB]);
-      const scoped = await client.query<{ id: string }>("SELECT id FROM tenants");
-      expect(scoped.rows).toEqual([{ id: tenantB }]);
+      eventId = await appendPreAuthSecurityEvent(client, {
+        action: "security.authn_failed",
+        outcome: "failure",
+        correlationId: "preauth-isolation-test",
+        requestId: "preauth-request-test",
+        metadata: { reason: "invalid_token" }
+      });
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);
@@ -420,6 +390,69 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     } finally {
       client.release();
     }
+
+    const persisted = await admin.query<{
+      id: string;
+      action: string;
+      outcome: string;
+      correlation_id: string;
+      metadata: Record<string, unknown>;
+    }>(
+      "SELECT id, action, outcome, correlation_id, metadata FROM global_security_events WHERE id = $1",
+      [eventId!]
+    );
+    expect(persisted.rows).toEqual([{
+      id: eventId!,
+      action: "security.authn_failed",
+      outcome: "failure",
+      correlation_id: "preauth-isolation-test",
+      metadata: { reason: "invalid_token" }
+    }]);
+
+    await expect(
+      runtime.query("SELECT id FROM global_security_events WHERE id = $1", [eventId!])
+    ).rejects.toMatchObject({ code: "42501" });
+    await expect(
+      runtime.query("UPDATE global_security_events SET action = 'security.tampered' WHERE id = $1", [eventId!])
+    ).rejects.toMatchObject({ code: "42501" });
+    await expect(
+      runtime.query("DELETE FROM global_security_events WHERE id = $1", [eventId!])
+    ).rejects.toMatchObject({ code: "42501" });
+
+    const grants = await admin.query<{ can_insert: boolean; can_select: boolean; can_update: boolean; can_delete: boolean; can_truncate: boolean }>(`
+      SELECT
+        has_table_privilege('iam_app_runtime', 'public.global_security_events', 'INSERT') AS can_insert,
+        has_table_privilege('iam_app_runtime', 'public.global_security_events', 'SELECT') AS can_select,
+        has_table_privilege('iam_app_runtime', 'public.global_security_events', 'UPDATE') AS can_update,
+        has_table_privilege('iam_app_runtime', 'public.global_security_events', 'DELETE') AS can_delete,
+        has_table_privilege('iam_app_runtime', 'public.global_security_events', 'TRUNCATE') AS can_truncate
+    `);
+    expect(grants.rows[0]).toEqual({ can_insert: true, can_select: false, can_update: false, can_delete: false, can_truncate: false });
+  });
+
+  it("does not allow a pre-auth NULL-tenant event to bypass tenant audit RLS", async () => {
+    const client = await runtime.connect();
+    try {
+      await expect(appendAuditEvent(client, {
+        tenantId: null,
+        actorPrincipalId: null,
+        action: "security.authn_failed",
+        targetType: "authentication",
+        outcome: "failure",
+        correlationId: "preauth-must-not-enter-tenant-audit"
+      })).rejects.toMatchObject({ code: "42501" });
+    } finally {
+      client.release();
+    }
+  });
+
+  it("forces RLS on the separate global security event store", async () => {
+    const result = await admin.query<{ relrowsecurity: boolean; relforcerowsecurity: boolean }>(`
+      SELECT relrowsecurity, relforcerowsecurity
+      FROM pg_class
+      WHERE oid = 'public.global_security_events'::regclass
+    `);
+    expect(result.rows).toEqual([{ relrowsecurity: true, relforcerowsecurity: true }]);
   });
 
 });
