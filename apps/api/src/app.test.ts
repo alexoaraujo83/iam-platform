@@ -56,6 +56,32 @@ describe("pre-auth audit limiter", () => {
     expect(shouldRecord("peer-a", 61_000)).toBe(true);
   });
 
+  it("throttles suppression notifications and omits peer identifiers", () => {
+    const onSuppressed = vi.fn();
+    const shouldRecord = createPreAuthAuditLimiter(1, 60_000, 1, onSuppressed);
+
+    expect(shouldRecord("sensitive-peer-a", 1_000)).toBe(true);
+    expect(shouldRecord("sensitive-peer-b", 1_001)).toBe(false);
+    expect(shouldRecord("sensitive-peer-c", 1_002)).toBe(false);
+    expect(onSuppressed).toHaveBeenCalledOnce();
+    expect(onSuppressed).toHaveBeenCalledWith("entry_cap");
+
+    // The warning is throttled even when additional unique peers are suppressed.
+    expect(shouldRecord("sensitive-peer-d", 61_000)).toBe(true);
+    expect(onSuppressed).toHaveBeenCalledOnce();
+  });
+
+  it("throttles per-peer rate-limit notifications", () => {
+    const onSuppressed = vi.fn();
+    const shouldRecord = createPreAuthAuditLimiter(4, 60_000, 1, onSuppressed);
+
+    expect(shouldRecord("peer-a", 1_000)).toBe(true);
+    expect(shouldRecord("peer-a", 1_001)).toBe(false);
+    expect(shouldRecord("peer-a", 1_002)).toBe(false);
+    expect(onSuppressed).toHaveBeenCalledOnce();
+    expect(onSuppressed).toHaveBeenCalledWith("peer_limit");
+  });
+
   it("rejects invalid limiter bounds", () => {
     expect(() => createPreAuthAuditLimiter(0)).toThrow("invalid_audit_limiter_max_entries");
     expect(() => createPreAuthAuditLimiter(1, 0)).toThrow("invalid_audit_limiter_window_ms");
