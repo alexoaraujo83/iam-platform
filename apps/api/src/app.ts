@@ -34,10 +34,13 @@ export type ApiRequestHandler = (request: IncomingMessage, response: ServerRespo
 const CONTEXT_PERMISSION: RequiredTenantPermission = { resource: "iam", action: "context.read" };
 const CONTROL_CENTER_PERMISSION: RequiredTenantPermission = { resource: "iam", action: "control_center.read" };
 
+export type PreAuthAuditSuppressionReason = "peer_limit" | "entry_cap";
+
 export function createPreAuthAuditLimiter(
   maxEntries = 4096,
   windowMs = 60_000,
-  perWindowLimit = 10
+  perWindowLimit = 10,
+  onSuppressed?: (reason: PreAuthAuditSuppressionReason) => void
 ): (peer: string, now?: number) => boolean {
   if (!Number.isSafeInteger(maxEntries) || maxEntries < 1) {
     throw new Error("invalid_audit_limiter_max_entries");
@@ -50,10 +53,20 @@ export function createPreAuthAuditLimiter(
   }
 
   const windows = new Map<string, { startedAt: number; count: number }>();
+  let lastSuppressionNoticeAt = Number.NEGATIVE_INFINITY;
+  const notifySuppression = (reason: PreAuthAuditSuppressionReason, now: number): void => {
+    if (now - lastSuppressionNoticeAt < windowMs) return;
+    lastSuppressionNoticeAt = now;
+    onSuppressed?.(reason);
+  };
+
   return (peer: string, now = Date.now()): boolean => {
     let window = windows.get(peer);
     if (window && now - window.startedAt < windowMs) {
-      if (window.count >= perWindowLimit) return false;
+      if (window.count >= perWindowLimit) {
+        notifySuppression("peer_limit", now);
+        return false;
+      }
       window.count += 1;
       return true;
     }
@@ -65,7 +78,10 @@ export function createPreAuthAuditLimiter(
       }
       // Fail closed for audit writes under high-cardinality source pressure.
       // Do not evict live windows, which would reset a peer's rate limit.
-      if (windows.size >= maxEntries) return false;
+      if (windows.size >= maxEntries) {
+        notifySuppression("entry_cap", now);
+        return false;
+      }
     }
 
     windows.set(peer, { startedAt: now, count: 1 });
@@ -90,7 +106,14 @@ export function createApiHandler(
 ): ApiRequestHandler {
   // Bound unauthenticated write amplification per socket peer. Do not trust
   // X-Forwarded-For here; it is only safe behind a separately trusted proxy.
-  const shouldRecordAudit = createPreAuthAuditLimiter();
+  const shouldRecordAudit = createPreAuthAuditLimiter(4096, 60_000, 10, (reason) => {
+    // Aggregate limiter pressure into at most one warning per window; never log peer identifiers.
+    console.warn(JSON.stringify({
+      level: "warn",
+      event: "pre_auth_audit_limiter_saturated",
+      reason
+    }));
+  });
 
   async function recordAuthFailure(request: IncomingMessage, reason: string): Promise<boolean> {
     const key = request.socket.remoteAddress ?? "unknown";
