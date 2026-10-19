@@ -41,13 +41,13 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
 
   beforeAll(async () => {
     await admin.query(`
-      DO $
+      DO $role$
       BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'iam_app_runtime') THEN
           CREATE ROLE iam_app_runtime LOGIN PASSWORD 'runtime-test-only' NOSUPERUSER NOBYPASSRLS;
         END IF;
       END
-      $;
+      $role$;
     `);
     const migration = await readFile(
       new URL("../migrations/0001_identity_tenancy.sql", import.meta.url),
