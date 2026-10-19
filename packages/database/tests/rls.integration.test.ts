@@ -40,6 +40,15 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
   }
 
   beforeAll(async () => {
+    await admin.query(`
+      DO $
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'iam_app_runtime') THEN
+          CREATE ROLE iam_app_runtime LOGIN PASSWORD 'runtime-test-only' NOSUPERUSER NOBYPASSRLS;
+        END IF;
+      END
+      $;
+    `);
     const migration = await readFile(
       new URL("../migrations/0001_identity_tenancy.sql", import.meta.url),
       "utf8"
@@ -62,19 +71,11 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     await admin.query(globalSecurityMigration);
 
     await admin.query(`
-      DO $$
-      BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'iam_runtime') THEN
-          CREATE ROLE iam_runtime LOGIN PASSWORD 'runtime-test-only' NOSUPERUSER NOBYPASSRLS;
-        END IF;
-      END
-      $$;
-      ALTER ROLE iam_runtime LOGIN PASSWORD 'runtime-test-only' NOSUPERUSER NOBYPASSRLS;
-      GRANT USAGE ON SCHEMA public TO iam_runtime;
-      GRANT SELECT, INSERT, UPDATE, DELETE ON tenants, memberships, roles, role_permissions, membership_roles, applications TO iam_runtime;
-      GRANT SELECT, INSERT ON audit_events TO iam_runtime;
-      GRANT SELECT ON principals, external_identities, permissions TO iam_runtime;
-      GRANT INSERT ON global_security_events TO iam_runtime;
+      ALTER ROLE iam_app_runtime LOGIN PASSWORD 'runtime-test-only' NOSUPERUSER NOBYPASSRLS;
+      GRANT USAGE ON SCHEMA public TO iam_app_runtime;
+      GRANT SELECT, INSERT, UPDATE, DELETE ON tenants, memberships, roles, role_permissions, membership_roles, applications TO iam_app_runtime;
+      GRANT SELECT, INSERT ON audit_events TO iam_app_runtime;
+      GRANT SELECT ON principals, external_identities, permissions TO iam_app_runtime;
     `);
 
     const tenantAResult = await admin.query<{ id: string }>(
@@ -144,7 +145,7 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     await admin.query("INSERT INTO audit_events (tenant_id, actor_principal_id, action, target_type, target_id, outcome, correlation_id) VALUES ($1, $2, 'membership.created', 'membership', $3, 'success', 'seed-b')", [tenantB, principalB, membershipB]);
 
     const role = await admin.query<{ rolbypassrls: boolean; rolsuper: boolean }>(
-      "SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = 'iam_runtime'"
+      "SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = 'iam_app_runtime'"
     );
     expect(role.rows[0]).toEqual({ rolbypassrls: false, rolsuper: false });
   });
@@ -323,7 +324,7 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     const result = await runtime.query<{ current_user: string; row_count: string }>(
       "SELECT current_user, (SELECT count(*) FROM tenants)::text AS row_count"
     );
-    expect(result.rows[0]?.current_user).toBe("iam_runtime");
+    expect(result.rows[0]?.current_user).toBe("iam_app_runtime");
     expect(result.rows[0]?.row_count).toBe("0");
   });
   it("forces RLS on every tenant-owned table", async () => {
@@ -359,7 +360,7 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
       `SELECT current_user, r.rolsuper, r.rolbypassrls
          FROM pg_roles r WHERE r.rolname = current_user`
     );
-    expect(role.rows[0]).toEqual({ current_user: "iam_runtime", rolsuper: false, rolbypassrls: false });
+    expect(role.rows[0]).toEqual({ current_user: "iam_app_runtime", rolsuper: false, rolbypassrls: false });
     const ownership = await runtime.query<{ owned_count: string }>(`
       SELECT count(*)::text AS owned_count
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -420,10 +421,10 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
 
     const grants = await admin.query<{ can_insert: boolean; can_select: boolean; can_update: boolean; can_delete: boolean }>(`
       SELECT
-        has_table_privilege('iam_runtime', 'public.global_security_events', 'INSERT') AS can_insert,
-        has_table_privilege('iam_runtime', 'public.global_security_events', 'SELECT') AS can_select,
-        has_table_privilege('iam_runtime', 'public.global_security_events', 'UPDATE') AS can_update,
-        has_table_privilege('iam_runtime', 'public.global_security_events', 'DELETE') AS can_delete
+        has_table_privilege('iam_app_runtime', 'public.global_security_events', 'INSERT') AS can_insert,
+        has_table_privilege('iam_app_runtime', 'public.global_security_events', 'SELECT') AS can_select,
+        has_table_privilege('iam_app_runtime', 'public.global_security_events', 'UPDATE') AS can_update,
+        has_table_privilege('iam_app_runtime', 'public.global_security_events', 'DELETE') AS can_delete
     `);
     expect(grants.rows[0]).toEqual({ can_insert: true, can_select: false, can_update: false, can_delete: false });
   });
