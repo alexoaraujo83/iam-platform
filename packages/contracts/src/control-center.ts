@@ -7,6 +7,8 @@
  * unredacted provider errors into these objects.
  */
 
+import type { ISODateTime, UUID } from "./index.js";
+
 export type ControlCenterEnvironment =
   | "development"
   | "preview"
