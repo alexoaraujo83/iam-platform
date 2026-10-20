@@ -282,7 +282,7 @@ export function createApiHandler(
     const startedAt = performance.now();
     const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
     const routeLabel = pathname.replace(
-      /^\/v1\/tenants\/[^/]+\/(control-center|context)$/,
+      /^\/v1\/tenants\/[^/]+\/(control-center\/runtime|control-center|context)$/,
       "/v1/tenants/:tenantId/$1"
     );
     response.setHeader("x-correlation-id", correlationId);
