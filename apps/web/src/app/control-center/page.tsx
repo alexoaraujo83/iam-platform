@@ -90,7 +90,7 @@ export default function ControlCenterPage() {
             <>
               <div className={styles.hero}>
                 <div className={styles.heroText}><div className={styles.heroEyebrow}><span className={styles.heroDot} /> CONTROL PLANE</div><h2>Clarity for every<br />identity and release.</h2><p>Um único ponto de controle para operação, segurança e evidências verificáveis da IAM Platform.</p><button type="button" className={styles.heroButton} onClick={() => setActive("diagnostics")}>Explore diagnostics <span aria-hidden="true">→</span></button></div>
-                <div className={styles.heroGraphic} aria-hidden="true"><div className={styles.orbit orbitOne} /><div className={styles.orbit orbitTwo} /><div className={styles.orbit orbitThree} /><div className={styles.core}><span>IAM</span><small>CONTROL</small></div><span className={styles.node nodeOne}>AUTH</span><span className={styles.node nodeTwo}>CI/CD</span><span className={styles.node nodeThree}>DATA</span></div>
+                <div className={styles.heroGraphic} aria-hidden="true"><div className={`${styles.orbit} ${styles.orbitOne}`} /><div className={`${styles.orbit} ${styles.orbitTwo}`} /><div className={`${styles.orbit} ${styles.orbitThree}`} /><div className={styles.core}><span>IAM</span><small>CONTROL</small></div><span className={styles.node nodeOne}>AUTH</span><span className={styles.node nodeTwo}>CI/CD</span><span className={styles.node nodeThree}>DATA</span></div>
               </div>
 
               <div className={styles.sectionHeading}><div><h2>Operational signals</h2><p>Indicadores aguardando fontes confiáveis</p></div><span className={styles.smallTag}>LIVE DATA · PENDING</span></div>
