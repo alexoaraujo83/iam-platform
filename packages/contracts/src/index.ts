@@ -60,3 +60,15 @@ export interface AuditEvent {
   readonly outcome: "success" | "denied" | "failure";
   readonly correlationId: string;
 }
+
+export type {
+  ControlCenterEnvironment,
+  DiagnosticCheck,
+  DiagnosticSeverity,
+  EvidenceArtifact,
+  EvidenceSource,
+  EvidenceStatus,
+  IntegrationSnapshot,
+  RuntimeSnapshot,
+  TestExecution
+} from "./control-center.js";
