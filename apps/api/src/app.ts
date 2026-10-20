@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extractBearerToken } from "@iam-platform/identity";
 import type { PreAuthSecurityEvent } from "@iam-platform/database";
+import type { RuntimeSnapshot, EvidenceStatus, ControlCenterEnvironment } from "@iam-platform/contracts";
 
 export interface RequiredTenantPermission {
   readonly resource: string;
@@ -89,6 +90,23 @@ export function createPreAuthAuditLimiter(
   };
 }
 
+function resolveControlCenterEnvironment(): ControlCenterEnvironment {
+  const value = process.env.VERCEL_ENV ?? process.env.APP_ENV ?? process.env.NODE_ENV;
+  if (value === "production" || value === "preview" || value === "development" || value === "staging") return value;
+  return "unknown";
+}
+
+function safeMetadata(value: string | undefined, pattern: RegExp): string | null {
+  const candidate = value?.trim();
+  return candidate && pattern.test(candidate) ? candidate : null;
+}
+
+function safeDeploymentUrl(value: string | undefined): string | null {
+  const candidate = value?.trim();
+  if (!candidate || candidate.length > 255 || !/^[A-Za-z0-9.-]+(?::[0-9]{1,5})?$/.test(candidate)) return null;
+  return `https://${candidate}`;
+}
+
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -157,15 +175,16 @@ export function createApiHandler(
       return;
     }
 
+    const runtimeDiagnosticsMatch = /^\/v1\/tenants\/([^/]+)\/control-center\/runtime$/.exec(routePath);
     const controlCenterMatch = /^\/v1\/tenants\/([^/]+)\/control-center$/.exec(routePath);
     const contextMatch = /^\/v1\/tenants\/([^/]+)\/context$/.exec(routePath);
-    const match = controlCenterMatch ?? contextMatch;
+    const match = runtimeDiagnosticsMatch ?? controlCenterMatch ?? contextMatch;
     if (request.method !== "GET" || !match?.[1]) {
       sendJson(response, 404, { error: "not_found" });
       return;
     }
 
-    const requiredPermission = controlCenterMatch ? CONTROL_CENTER_PERMISSION : CONTEXT_PERMISSION;
+    const requiredPermission = (controlCenterMatch || runtimeDiagnosticsMatch) ? CONTROL_CENTER_PERMISSION : CONTEXT_PERMISSION;
     const accessToken = extractBearerToken(request.headers.authorization);
     if (!accessToken) {
       const audited = await recordAuthFailure(request, "missing_or_invalid_bearer");
@@ -186,11 +205,42 @@ export function createApiHandler(
     }
 
     try {
-      const context = controlCenterMatch
+      const context = (controlCenterMatch || runtimeDiagnosticsMatch)
         ? await resolveTenantContext(accessToken, tenantId, requiredPermission)
         : await resolveTenantContext(accessToken, tenantId);
       if (!context) {
         sendJson(response, 403, { error: "active_membership_required" });
+        return;
+      }
+      if (runtimeDiagnosticsMatch) {
+        const databaseReady = await checkReadiness().catch(() => false);
+        const environment = resolveControlCenterEnvironment();
+        const now = new Date().toISOString();
+        const commitSha = safeMetadata(process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GITHUB_SHA, /^[0-9a-f]{7,64}$/i);
+        const deploymentId = safeMetadata(process.env.VERCEL_DEPLOYMENT_ID, /^[A-Za-z0-9_-]{1,128}$/);
+        const deploymentUrl = safeDeploymentUrl(process.env.VERCEL_URL);
+        const checks = [
+          {
+            id: "api.runtime", name: "API runtime", status: "pass" as const, severity: "info" as const,
+            summary: "Authenticated diagnostics endpoint is responding", environment,
+            source: { system: "iam-platform-api", reference: commitSha, observedAt: now },
+            checkedAt: now, validUntil: new Date(Date.now() + 60_000).toISOString(), correlationId
+          },
+          {
+            id: "database.readiness", name: "Database readiness", status: databaseReady ? "pass" as const : "fail" as const,
+            severity: databaseReady ? "info" as const : "critical" as const,
+            summary: databaseReady ? "Database readiness query succeeded" : "Database readiness query failed", environment,
+            source: { system: "postgresql-readiness", reference: null, observedAt: now },
+            checkedAt: now, validUntil: new Date(Date.now() + 30_000).toISOString(), correlationId
+          }
+        ];
+        const overallStatus: EvidenceStatus = checks.some((check) => check.status === "fail")
+          ? "fail" : checks.every((check) => check.status === "pass") ? "pass" : "unknown";
+        const snapshot: RuntimeSnapshot = {
+          id: randomUUID(), environment, capturedAt: now, commitSha, deploymentId, deploymentUrl,
+          checks, overallStatus, correlationId
+        };
+        sendJson(response, databaseReady ? 200 : 503, snapshot);
         return;
       }
       sendJson(response, 200, {
