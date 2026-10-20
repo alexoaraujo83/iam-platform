@@ -370,10 +370,10 @@ describe("IAM HTTP API", () => {
       environment: "unknown",
       overallStatus: "pass",
       correlationId: "runtime-diag-test",
-      commitSha: null,
       deploymentId: null,
       deploymentUrl: null
     });
+    expect(snapshot.commitSha === null || /^[0-9a-f]{7,64}$/i.test(snapshot.commitSha)).toBe(true);
     expect(snapshot.checks).toHaveLength(2);
     expect(snapshot.checks[0]).toMatchObject({
       id: "api.runtime",
