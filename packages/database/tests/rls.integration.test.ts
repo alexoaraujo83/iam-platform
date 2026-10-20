@@ -95,6 +95,31 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     );
     expect(runtimeMemberships.rowCount).toBe(0);
 
+    const legacyRuntimeSecurity = await admin.query<{
+      rolsuper: boolean;
+      rolbypassrls: boolean;
+      rolcreaterole: boolean;
+      rolcreatedb: boolean;
+    }>(
+      `SELECT rolsuper, rolbypassrls, rolcreaterole, rolcreatedb
+         FROM pg_roles WHERE rolname = 'iam_runtime'`
+    );
+    if (legacyRuntimeSecurity.rowCount === 1) {
+      expect(legacyRuntimeSecurity.rows[0]).toEqual({
+        rolsuper: false,
+        rolbypassrls: false,
+        rolcreaterole: false,
+        rolcreatedb: false,
+      });
+      const legacyMemberships = await admin.query(
+        `SELECT 1
+           FROM pg_auth_members am
+           JOIN pg_roles member_role ON member_role.oid = am.member
+          WHERE member_role.rolname = 'iam_runtime'`
+      );
+      expect(legacyMemberships.rowCount).toBe(0);
+    }
+
     await admin.query(`
       ALTER ROLE iam_app_runtime LOGIN PASSWORD 'runtime-test-only' NOSUPERUSER NOBYPASSRLS;
       GRANT USAGE ON SCHEMA public TO iam_app_runtime;
