@@ -225,7 +225,7 @@ export function createApiHandler(
           {
             id: "api.runtime", name: "API runtime", status: "pass" as const, severity: "info" as const,
             summary: "Authenticated diagnostics endpoint is responding", environment,
-            source: { system: "iam-platform-api", reference: commitSha, observedAt: now },
+            source: { system: "iam-platform-api", reference: null, observedAt: now },
             checkedAt: now, validUntil: new Date(Date.now() + 60_000).toISOString(), correlationId
           },
           {
