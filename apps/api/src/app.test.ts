@@ -351,6 +351,86 @@ describe("IAM HTTP API", () => {
     expect(await response.json()).toEqual({ error: "active_membership_required" });
   });
 
+  it("returns permission-gated runtime diagnostics with explicit source and freshness metadata", async () => {
+    const resolver = vi.fn<ResolveTenantContext>().mockResolvedValue({
+      ...context,
+      permissions: [{ resource: "iam", action: "control_center.read" }]
+    });
+    const readiness = vi.fn<CheckReadiness>().mockResolvedValue(true);
+    const response = await requestApi(
+      resolver,
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center/runtime",
+      { authorization: "Bearer valid-token", "x-correlation-id": "runtime-diag-test" },
+      readiness
+    );
+
+    expect(response.status).toBe(200);
+    const snapshot = await response.json();
+    expect(snapshot).toMatchObject({
+      environment: "unknown",
+      overallStatus: "pass",
+      correlationId: "runtime-diag-test",
+      commitSha: null,
+      deploymentId: null,
+      deploymentUrl: null
+    });
+    expect(snapshot.checks).toHaveLength(2);
+    expect(snapshot.checks[0]).toMatchObject({
+      id: "api.runtime",
+      status: "pass",
+      source: { system: "iam-platform-api", reference: null }
+    });
+    expect(snapshot.checks[1]).toMatchObject({
+      id: "database.readiness",
+      status: "pass",
+      source: { system: "postgresql-readiness", reference: null }
+    });
+    expect(snapshot.checks.every((check: { checkedAt: string; validUntil: string; correlationId: string }) =>
+      Date.parse(check.validUntil) > Date.parse(check.checkedAt) && check.correlationId === "runtime-diag-test"
+    )).toBe(true);
+    expect(resolver).toHaveBeenCalledWith(
+      "valid-token",
+      "11111111-1111-4111-8111-111111111111",
+      { resource: "iam", action: "control_center.read" }
+    );
+    expect(readiness).toHaveBeenCalledOnce();
+  });
+
+  it("marks database diagnostics as failed and returns 503 when readiness fails", async () => {
+    const response = await requestApi(
+      vi.fn<ResolveTenantContext>().mockResolvedValue(context),
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center/runtime",
+      { authorization: "Bearer valid-token" },
+      async () => false
+    );
+
+    expect(response.status).toBe(503);
+    const snapshot = await response.json();
+    expect(snapshot.overallStatus).toBe("fail");
+    expect(snapshot.checks).toContainEqual(expect.objectContaining({
+      id: "database.readiness",
+      status: "fail",
+      severity: "critical"
+    }));
+  });
+
+  it("denies runtime diagnostics without the control-center permission", async () => {
+    const resolver = vi.fn<ResolveTenantContext>().mockRejectedValue(new Error("authorization_denied"));
+    const response = await requestApi(
+      resolver,
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center/runtime",
+      { authorization: "Bearer valid-token" }
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "permission_denied" });
+    expect(resolver).toHaveBeenCalledWith(
+      "valid-token",
+      "11111111-1111-4111-8111-111111111111",
+      { resource: "iam", action: "control_center.read" }
+    );
+  });
+
   it("returns 404 for unknown routes", async () => {
     const response = await requestApi(async () => context, "/unknown");
     expect(response.status).toBe(404);
