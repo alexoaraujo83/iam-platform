@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import styles from "./control-center.module.css";
 
 const modules = [
@@ -16,6 +16,8 @@ const modules = [
 ] as const;
 
 type ModuleId = (typeof modules)[number]["id"];
+
+type AccessCheck = { loading: boolean; outcome: string; permissionGranted?: boolean; tenantId?: string | null; apiVersion?: string | null; correlationId?: string | null; detail?: string };
 
 const integrations = [
   { name: "GitHub", detail: "Código-fonte e governança", icon: "GH" },
@@ -41,6 +43,27 @@ export default function ControlCenterPage() {
   const [active, setActive] = useState<ModuleId>("overview");
   const [query, setQuery] = useState("");
   const [environment, setEnvironment] = useState("All environments");
+  const [accessCheck, setAccessCheck] = useState<AccessCheck>({ loading: true, outcome: "checking" });
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/control-center", { method: "GET", cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({})) as Omit<AccessCheck, "loading">;
+        if (!cancelled) setAccessCheck({
+          loading: false,
+          outcome: typeof payload.outcome === "string" ? payload.outcome : "invalid_response",
+          permissionGranted: payload.permissionGranted,
+          tenantId: payload.tenantId,
+          apiVersion: payload.apiVersion,
+          correlationId: payload.correlationId,
+          detail: payload.detail,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setAccessCheck({ loading: false, outcome: "control_center_probe_failed" });
+      });
+    return () => { cancelled = true; };
+  }, []);
   const activeModule = modules.find((item) => item.id === active) ?? modules[0];
   const detail = moduleDetails[active];
   const filteredIntegrations = useMemo(
@@ -83,7 +106,7 @@ export default function ControlCenterPage() {
         <div className={styles.content}>
           <div className={styles.pageIntro}>
             <div><p className={styles.eyebrow}>{activeModule.eyebrow}</p><h1>{activeModule.title}</h1><p className={styles.subtitle}>{activeModule.description}</p></div>
-            <div className={styles.introMeta}><span className={styles.statusPill}><span /> Architecture preview</span><span className={styles.updated}>Data source: not connected</span></div>
+            <div className={styles.introMeta}><span className={styles.statusPill}><span /> {accessCheck.loading ? "Checking IAM access" : accessCheck.permissionGranted ? "IAM access verified" : accessCheck.outcome.replaceAll("_", " ")}</span><span className={styles.updated}>{accessCheck.permissionGranted ? "API authorization confirmed" : "Operational data not connected"}</span></div>
           </div>
 
           {active === "overview" ? (
@@ -93,7 +116,24 @@ export default function ControlCenterPage() {
                 <div className={styles.heroGraphic} aria-hidden="true"><div className={`${styles.orbit} ${styles.orbitOne}`} /><div className={`${styles.orbit} ${styles.orbitTwo}`} /><div className={`${styles.orbit} ${styles.orbitThree}`} /><div className={styles.core}><span>IAM</span><small>CONTROL</small></div><span className={`${styles.node} ${styles.nodeOne}`}>AUTH</span><span className={`${styles.node} ${styles.nodeTwo}`}>CI/CD</span><span className={`${styles.node} ${styles.nodeThree}`}>DATA</span></div>
               </div>
 
-              <div className={styles.sectionHeading}><div><h2>Operational signals</h2><p>Indicadores aguardando fontes confiáveis</p></div><span className={styles.smallTag}>LIVE DATA · PENDING</span></div>
+              <div className={styles.sectionHeading}><div><h2>Operational signals</h2><p>Indicadores aguardando fontes confiáveis</p></div><span className={styles.smallTag}>{accessCheck.permissionGranted ? "IAM ACCESS · VERIFIED" : "LIVE DATA · PENDING"}</span></div>
+              <section className={styles.accessPanel} aria-live="polite">
+                <div className={styles.accessIndicator} data-authorized={accessCheck.permissionGranted === true}>{accessCheck.loading ? "…" : accessCheck.permissionGranted ? "✓" : "!"}</div>
+                <div className={styles.accessCopy}>
+                  <strong>{accessCheck.loading ? "Verificando autorização no IAM API…" : accessCheck.permissionGranted ? "Permissão iam.control_center.read confirmada" : "A autorização operacional ainda não foi confirmada"}</strong>
+                  <p>{accessCheck.loading ? "A consulta ocorre no servidor usando a sessão Auth0 atual." : accessCheck.detail ?? (accessCheck.permissionGranted ? "A sessão foi aceita pela API e a permissão de leitura foi confirmada. Isso não significa que os provedores externos já estejam conectados." : "Resultado: " + accessCheck.outcome.replaceAll("_", " ") + ". Verifique a sessão Auth0, as variáveis de ambiente e a associação/permissão do tenant.")}</p>
+                  {accessCheck.correlationId && <small>Correlation ID: {accessCheck.correlationId}</small>}
+                </div>
+                {!accessCheck.loading && <button type="button" className={styles.outlineButton} onClick={() => {
+                  setAccessCheck({ loading: true, outcome: "checking" });
+                  fetch("/api/control-center", { cache: "no-store" })
+                    .then(async (response) => {
+                      const payload = await response.json().catch(() => ({})) as Omit<AccessCheck, "loading">;
+                      setAccessCheck({ loading: false, outcome: payload.outcome ?? "invalid_response", permissionGranted: payload.permissionGranted, tenantId: payload.tenantId, apiVersion: payload.apiVersion, correlationId: payload.correlationId, detail: payload.detail });
+                    })
+                    .catch(() => setAccessCheck({ loading: false, outcome: "control_center_probe_failed" }));
+                }}>Recheck access</button>}
+              </section>
               <div className={styles.metricGrid}>
                 {[["Service health","Unknown","Conecte health checks"],["Security findings","Not available","Conecte scanners e auditoria"],["Test executions","No data","Conecte os pipelines de teste"],["Active deployments","Not available","Conecte a Vercel"]].map(([label, value, hint]) => <article className={styles.metricCard} key={label}><div className={styles.metricTop}><span>{label}</span><span className={styles.metricGlyph}>↗</span></div><strong className={styles.metricValue}>{value}</strong><p>{hint}</p><div className={styles.metricLine}><span /></div></article>)}
               </div>
