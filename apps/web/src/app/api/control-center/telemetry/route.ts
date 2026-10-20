@@ -58,7 +58,7 @@ export async function GET() {
     const sha = typeof latest.head_sha === "string" ? latest.head_sha : "";
     const [jobsPayload, statusPayload] = await Promise.all([
       githubJson(`/repos/${repository}/actions/runs/${latest.id}/jobs?per_page=100`, headers).catch(() => ({} as Record<string, unknown>)),
-      sha ? githubJson(`/repos/${repository}/commits/${encodeURIComponent(sha)}/status`, headers).catch(() => ({})) : Promise.resolve({} as Record<string, unknown>),
+      sha ? githubJson(`/repos/${repository}/commits/${encodeURIComponent(sha)}/status`, headers).catch(() => ({} as Record<string, unknown>)) : Promise.resolve({} as Record<string, unknown>),
     ]);
 
     const jobs = Array.isArray(jobsPayload.jobs)
