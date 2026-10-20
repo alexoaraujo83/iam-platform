@@ -430,7 +430,7 @@ describe("IAM HTTP API", () => {
     expect(snapshot.checks).toContainEqual(expect.objectContaining({
       id: "deployment.metadata",
       status: "pass",
-      source: { system: "deployment-platform", reference: "b".repeat(40) }
+      source: expect.objectContaining({ system: "deployment-platform", reference: "b".repeat(40) })
     }));
   });
 
