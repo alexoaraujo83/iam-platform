@@ -56,6 +56,11 @@ Observed roles on Neon main:
 - `iam_app_runtime` has table grants consistent with read access to domain tables, INSERT/SELECT on tenant audit events and INSERT-only on global pre-auth security events.
 - RLS and FORCE RLS are enabled for tenants, memberships, principals, external identities, roles, role_permissions, membership_roles, applications, audit_events and global_security_events. The `permissions` table currently reports RLS disabled; verify whether it is intentionally global and contains no tenant-scoped data.
 
+Additional read-only verification on the Neon `development` branch (`br-super-term-b6dt6vec`):
+- The same role attributes were observed: `iam_app_runtime` is non-privileged and does not bypass RLS; `iam_runtime` still has `CREATEDB`, `CREATEROLE`, `REPLICATION` and `BYPASSRLS`; `iam_owner` remains privileged.
+- RLS and FORCE RLS are enabled on the tenant/domain and audit tables inspected. The `permissions` lookup table has RLS disabled on this branch too. Its global/reference-data status should be documented and covered by a targeted access test.
+- This confirms the legacy-role risk is present in development as well as main; it does not establish which role Vercel uses.
+
 Important caveat: the Vercel `DATABASE_URL` values were not read or exposed. The actual role used by each deployed API instance is therefore not established. The legacy `iam_runtime` role's privileged attributes are a blocker if any deployment still uses it. Verify the effective runtime login with the existing read-only script/workflow before claiming runtime security is proven.
 
 References:
