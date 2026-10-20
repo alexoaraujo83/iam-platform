@@ -368,13 +368,13 @@ describe("IAM HTTP API", () => {
     const snapshot = await response.json();
     expect(snapshot).toMatchObject({
       environment: "unknown",
-      overallStatus: "pass",
+      overallStatus: "unknown",
       correlationId: "runtime-diag-test",
       deploymentId: null,
       deploymentUrl: null
     });
     expect(snapshot.commitSha === null || /^[0-9a-f]{7,64}$/i.test(snapshot.commitSha)).toBe(true);
-    expect(snapshot.checks).toHaveLength(2);
+    expect(snapshot.checks).toHaveLength(3);
     expect(snapshot.checks[0]).toMatchObject({
       id: "api.runtime",
       status: "pass",
@@ -384,6 +384,11 @@ describe("IAM HTTP API", () => {
       id: "database.readiness",
       status: "pass",
       source: { system: "postgresql-readiness", reference: null }
+    });
+    expect(snapshot.checks[2]).toMatchObject({
+      id: "deployment.metadata",
+      status: "unknown",
+      source: { system: "deployment-platform", reference: null }
     });
     expect(snapshot.checks.every((check: { checkedAt: string; validUntil: string; correlationId: string }) =>
       Date.parse(check.validUntil) > Date.parse(check.checkedAt) && check.correlationId === "runtime-diag-test"
