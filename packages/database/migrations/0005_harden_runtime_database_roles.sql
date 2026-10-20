@@ -6,15 +6,18 @@ BEGIN;
 
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'iam_app_runtime')
-     AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'iam_owner') THEN
-    -- Runtime must not inherit owner privileges or have authority to SET ROLE to owner.
-    REVOKE iam_owner FROM iam_app_runtime;
+  -- Harden the application role independently of whether the owner role exists.
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'iam_app_runtime') THEN
     ALTER ROLE iam_app_runtime NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
+
+    -- Remove direct membership only when both roles exist.
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'iam_owner') THEN
+      REVOKE iam_owner FROM iam_app_runtime;
+    END IF;
   END IF;
 
+  -- Keep the legacy runtime role restricted too, when it is present.
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'iam_runtime') THEN
-    -- Harden the legacy runtime role as well; it must not bypass tenant RLS.
     ALTER ROLE iam_runtime NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
   END IF;
 END
