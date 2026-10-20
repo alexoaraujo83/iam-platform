@@ -388,7 +388,7 @@ describe("IAM HTTP API", () => {
     expect(snapshot.checks[2]).toMatchObject({
       id: "deployment.metadata",
       status: "unknown",
-      source: { system: "deployment-platform", reference: null }
+      source: { system: "deployment-platform", reference: snapshot.commitSha }
     });
     expect(snapshot.checks.every((check: { checkedAt: string; validUntil: string; correlationId: string }) =>
       Date.parse(check.validUntil) > Date.parse(check.checkedAt) && check.correlationId === "runtime-diag-test"
