@@ -377,6 +377,47 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     expect(result.rows[0]?.current_user).toBe("iam_app_runtime");
     expect(result.rows[0]?.row_count).toBe("0");
   });
+  it("keeps permissions as global reference data with runtime read-only access", async () => {
+    const columns = await admin.query<{ column_name: string }>(
+      `SELECT column_name
+         FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'permissions'
+        ORDER BY ordinal_position`
+    );
+    expect(columns.rows.map((row) => row.column_name)).toEqual([
+      "id",
+      "permission_key",
+      "description",
+      "created_at"
+    ]);
+    expect(columns.rows.some((row) => row.column_name === "tenant_id")).toBe(false);
+
+    const grants = await admin.query<{
+      can_select: boolean;
+      can_insert: boolean;
+      can_update: boolean;
+      can_delete: boolean;
+      can_truncate: boolean;
+    }>(`SELECT
+      has_table_privilege('iam_app_runtime', 'public.permissions', 'SELECT') AS can_select,
+      has_table_privilege('iam_app_runtime', 'public.permissions', 'INSERT') AS can_insert,
+      has_table_privilege('iam_app_runtime', 'public.permissions', 'UPDATE') AS can_update,
+      has_table_privilege('iam_app_runtime', 'public.permissions', 'DELETE') AS can_delete,
+      has_table_privilege('iam_app_runtime', 'public.permissions', 'TRUNCATE') AS can_truncate`);
+    expect(grants.rows[0]).toEqual({
+      can_select: true,
+      can_insert: false,
+      can_update: false,
+      can_delete: false,
+      can_truncate: false
+    });
+
+    const referenceRows = await runtime.query<{ permission_key: string }>(
+      "SELECT permission_key FROM permissions ORDER BY permission_key"
+    );
+    expect(referenceRows.rows.length).toBeGreaterThan(0);
+  });
+
   it("forces RLS on every tenant-owned table", async () => {
     const result = await admin.query<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>(`
       SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
