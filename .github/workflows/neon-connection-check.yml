@@ -106,7 +106,7 @@ jobs:
             exit 1
           fi
 
-          expected_checks=8
+          expected_checks=9
           actual_checks="$(grep -c ':PASS$' <<< "$result" || true)"
           if [[ "$actual_checks" -ne "$expected_checks" ]]; then
             echo "::error::Quantidade inesperada de verificações concluídas: $actual_checks (esperado: $expected_checks)."
