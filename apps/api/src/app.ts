@@ -158,7 +158,7 @@ export function createApiHandler(
     }
   }
 
-  async function routeRequest(request: IncomingMessage, response: ServerResponse, correlationId: string): Promise<void> {
+  async function routeRequest(request: IncomingMessage, response: ServerResponse, requestCorrelationId: string): Promise<void> {
     const url = new URL(request.url ?? "/", "http://localhost");
     const routePath = url.pathname === "/api/index" ? (url.searchParams.get("path") ?? "/") : url.pathname;
     if (request.method === "GET" && routePath === "/health") {
@@ -213,6 +213,8 @@ export function createApiHandler(
         return;
       }
       if (runtimeDiagnosticsMatch) {
+        // Keep the request-scoped correlation identifier explicit in this block.
+        const correlationId = requestCorrelationId;
         const databaseReady = await checkReadiness().catch(() => false);
         const environment = resolveControlCenterEnvironment();
         const now = new Date().toISOString();
