@@ -70,6 +70,12 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     );
     await admin.query(globalSecurityMigration);
 
+    const runtimeRoleHardeningMigration = await readFile(
+      new URL("../migrations/0005_harden_runtime_database_roles.sql", import.meta.url),
+      "utf8"
+    );
+    await admin.query(runtimeRoleHardeningMigration);
+
     await admin.query(`
       ALTER ROLE iam_app_runtime LOGIN PASSWORD 'runtime-test-only' NOSUPERUSER NOBYPASSRLS;
       GRANT USAGE ON SCHEMA public TO iam_app_runtime;
