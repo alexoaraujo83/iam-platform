@@ -25,6 +25,7 @@ async function requestApi(
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(servers.splice(0).map((server) =>
     new Promise<void>((resolve, reject) =>
       server.close((error) => error ? reject(error) : resolve())
@@ -399,6 +400,66 @@ describe("IAM HTTP API", () => {
       { resource: "iam", action: "control_center.read" }
     );
     expect(readiness).toHaveBeenCalledOnce();
+  });
+
+  it("reports deployment metadata as verified only when environment and commit are valid", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("VERCEL_GIT_COMMIT_SHA", "b".repeat(40));
+    vi.stubEnv("VERCEL_DEPLOYMENT_ID", "dpl_iam_api_123");
+    vi.stubEnv("VERCEL_URL", "iam-api-example.vercel.app");
+
+    const resolver = vi.fn<ResolveTenantContext>().mockResolvedValue({
+      ...context,
+      permissions: [{ resource: "iam", action: "control_center.read" }]
+    });
+    const response = await requestApi(
+      resolver,
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center/runtime",
+      { authorization: "Bearer valid-token" }
+    );
+
+    expect(response.status).toBe(200);
+    const snapshot = await response.json();
+    expect(snapshot).toMatchObject({
+      environment: "production",
+      commitSha: "b".repeat(40),
+      deploymentId: "dpl_iam_api_123",
+      deploymentUrl: "https://iam-api-example.vercel.app",
+      overallStatus: "pass"
+    });
+    expect(snapshot.checks).toContainEqual(expect.objectContaining({
+      id: "deployment.metadata",
+      status: "pass",
+      source: { system: "deployment-platform", reference: "b".repeat(40) }
+    }));
+  });
+
+  it("rejects malformed deployment metadata instead of echoing it", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("VERCEL_GIT_COMMIT_SHA", "secret-looking-value");
+    vi.stubEnv("VERCEL_DEPLOYMENT_ID", "bad value");
+    vi.stubEnv("VERCEL_URL", "https://example.com/path?token=not-for-logs");
+
+    const response = await requestApi(
+      vi.fn<ResolveTenantContext>().mockResolvedValue({
+        ...context,
+        permissions: [{ resource: "iam", action: "control_center.read" }]
+      }),
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center/runtime",
+      { authorization: "Bearer valid-token" }
+    );
+
+    expect(response.status).toBe(200);
+    const snapshot = await response.json();
+    expect(snapshot).toMatchObject({
+      environment: "production",
+      commitSha: null,
+      deploymentId: null,
+      deploymentUrl: null,
+      overallStatus: "unknown"
+    });
+    expect(JSON.stringify(snapshot)).not.toContain("secret-looking-value");
+    expect(JSON.stringify(snapshot)).not.toContain("not-for-logs");
   });
 
   it("marks database diagnostics as failed and returns 503 when readiness fails", async () => {
