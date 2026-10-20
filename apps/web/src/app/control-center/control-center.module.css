@@ -190,3 +190,17 @@
 @media (prefers-reduced-motion: reduce) {
   .navItem, .navItemActive { transition: none; }
 }
+
+
+.accessPanel { display: flex; align-items: center; gap: 13px; padding: 15px 17px; border: 1px solid var(--line); border-radius: 11px; background: #fff; }
+.accessIndicator { display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; border: 1px solid #f0dfbd; border-radius: 10px; background: #fff9ed; color: #9b6b22; font-size: 15px; font-weight: 800; }
+.accessIndicator[data-authorized="true"] { border-color: #ccebdc; background: #effaf4; color: #16824b; }
+.accessCopy { min-width: 0; flex: 1; }
+.accessCopy strong { color: #344054; font-size: 11px; }
+.accessCopy p { margin-top: 5px; color: #8792a3; font-size: 10px; line-height: 1.65; }
+.accessCopy small { display: block; margin-top: 6px; color: #8b83df; font-size: 9px; overflow-wrap: anywhere; }
+@media (max-width: 560px) {
+  .accessPanel { align-items: flex-start; flex-wrap: wrap; padding: 13px; }
+  .accessCopy { flex-basis: calc(100% - 50px); }
+  .accessPanel .outlineButton { margin-left: 47px; }
+}
