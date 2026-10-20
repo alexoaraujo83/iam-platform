@@ -232,6 +232,17 @@ export function createApiHandler(
             summary: databaseReady ? "Database readiness query succeeded" : "Database readiness query failed", environment,
             source: { system: "postgresql-readiness", reference: null, observedAt: now },
             checkedAt: now, validUntil: new Date(Date.now() + 30_000).toISOString(), correlationId
+          },
+          {
+            id: "deployment.metadata", name: "Deployment metadata",
+            status: commitSha && environment !== "unknown" ? "pass" as const : "unknown" as const,
+            severity: "warning" as const,
+            summary: commitSha && environment !== "unknown"
+              ? "Deployment commit and environment metadata are available"
+              : "Deployment commit or environment metadata is unavailable",
+            environment,
+            source: { system: "deployment-platform", reference: commitSha, observedAt: now },
+            checkedAt: now, validUntil: new Date(Date.now() + 300_000).toISOString(), correlationId
           }
         ];
         const overallStatus: EvidenceStatus = checks.some((check) => check.status === "fail")
