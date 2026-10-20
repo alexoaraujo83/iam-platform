@@ -76,6 +76,25 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     );
     await admin.query(runtimeRoleHardeningMigration);
 
+    const runtimeRoleSecurity = await admin.query<{
+      rolsuper: boolean;
+      rolbypassrls: boolean;
+      rolcreaterole: boolean;
+      rolcreatedb: boolean;
+    }>(
+      "SELECT rolsuper, rolbypassrls, rolcreaterole, rolcreatedb FROM pg_roles WHERE rolname = 'iam_app_runtime'"
+    );
+    expect(runtimeRoleSecurity.rows[0]).toEqual({
+      rolsuper: false,
+      rolbypassrls: false,
+      rolcreaterole: false,
+      rolcreatedb: false,
+    });
+    const runtimeMemberships = await admin.query(
+      "SELECT 1 FROM pg_auth_members am JOIN pg_roles member_role ON member_role.oid = am.member WHERE member_role.rolname = 'iam_app_runtime'"
+    );
+    expect(runtimeMemberships.rowCount).toBe(0);
+
     await admin.query(`
       ALTER ROLE iam_app_runtime LOGIN PASSWORD 'runtime-test-only' NOSUPERUSER NOBYPASSRLS;
       GRANT USAGE ON SCHEMA public TO iam_app_runtime;
