@@ -158,7 +158,7 @@ export function createApiHandler(
     }
   }
 
-  async function routeRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  async function routeRequest(request: IncomingMessage, response: ServerResponse, correlationId: string): Promise<void> {
     const url = new URL(request.url ?? "/", "http://localhost");
     const routePath = url.pathname === "/api/index" ? (url.searchParams.get("path") ?? "/") : url.pathname;
     if (request.method === "GET" && routePath === "/health") {
@@ -297,7 +297,7 @@ export function createApiHandler(
         duration_ms: Math.max(0, Math.round(performance.now() - startedAt))
       }));
     });
-    void routeRequest(request, response).catch(() => {
+    void routeRequest(request, response, correlationId).catch(() => {
       if (!response.headersSent) sendJson(response, 500, { error: "internal_server_error" });
       else response.destroy();
     });
