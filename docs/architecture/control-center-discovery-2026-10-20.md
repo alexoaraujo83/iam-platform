@@ -53,15 +53,15 @@ Observed roles on Neon main:
 - `iam_app_runtime`: `rolsuper=false`, `rolcreatedb=false`, `rolcreaterole=false`, `rolreplication=false`, `rolbypassrls=false`, login enabled.
 - `iam_runtime`: `rolsuper=false`, but `rolcreatedb=true`, `rolcreaterole=true`, `rolreplication=true`, `rolbypassrls=true`, login enabled.
 - `iam_owner`: privileged owner role; it is not suitable for application runtime.
-- `iam_app_runtime` has table grants consistent with read access to domain tables, INSERT/SELECT on tenant audit events and INSERT-only on global pre-auth security events.
+- `iam_app_runtime` has table grants consistent with read access to domain tables, INSERT/SELECT on tenant audit events and INSERT-only on global pre-auth security events. The production runtime-security workflow confirmed the effective login as `iam_app_runtime`.
 - RLS and FORCE RLS are enabled for tenants, memberships, principals, external identities, roles, role_permissions, membership_roles, applications, audit_events and global_security_events. The `permissions` table currently reports RLS disabled; verify whether it is intentionally global and contains no tenant-scoped data.
 
 Additional read-only verification on the Neon `development` branch (`br-super-term-b6dt6vec`):
 - The same role attributes were observed: `iam_app_runtime` is non-privileged and does not bypass RLS; `iam_runtime` still has `CREATEDB`, `CREATEROLE`, `REPLICATION` and `BYPASSRLS`; `iam_owner` remains privileged.
-- RLS and FORCE RLS are enabled on the tenant/domain and audit tables inspected. The `permissions` lookup table has RLS disabled on this branch too. Its global/reference-data status should be documented and covered by a targeted access test.
+- RLS and FORCE RLS are enabled on the tenant/domain and audit tables inspected. The `permissions` lookup table has RLS disabled on this branch too. Read-only inspection of main shows only `id`, `permission_key`, `description` and `created_at` columns (no `tenant_id`), and `iam_app_runtime` has SELECT only. This supports treating it as global reference data for now; retain a schema-level regression test so tenant-scoped columns cannot be introduced silently without revisiting RLS.
 - This confirms the legacy-role risk is present in development as well as main; it does not establish which role Vercel uses.
 
-Important caveat: the Vercel `DATABASE_URL` values were not read or exposed. The actual role used by each deployed API instance is therefore not established. The legacy `iam_runtime` role's privileged attributes are a blocker if any deployment still uses it. Verify the effective runtime login with the existing read-only script/workflow before claiming runtime security is proven.
+Runtime login verification (production, read-only): GitHub Actions run [Verify runtime database security #6](https://github.com/alexoaraujo83/iam-platform/actions/runs/39493932141) completed successfully for commit `b5aed6d277c4743d166325cbb4fe0197eb60e4e2`. The script ran using the selected production GitHub Environment secret without exposing its value and reported `database_name=iam_platform`, `runtime_role=iam_app_runtime`, PostgreSQL `17.11`, `superuser=false`, `bypassrls=false`, forced RLS on all 10 protected tables, no protected-table ownership, append-only tenant audit permissions and INSERT-only global security event permissions. This proves the login used by that workflow's production database connection, not automatically every Vercel deployment/instance. The legacy `iam_runtime` role still has privileged attributes; establish that no deployed connection uses it and retire/harden it through a separately reviewed change.
 
 References:
 - https://github.com/alexoaraujo83/iam-platform/blob/main/packages/database/migrations/verify_runtime_security.sql
@@ -78,7 +78,7 @@ References:
 |---|---|---|
 | Web / API | Projects and READY deployments exist | Production commit drift; smoke test login, health and protected tenant-context route |
 | Auth0 / OIDC | SDK dependency and reference contract exist | Verify dedicated tenant, exact issuer/audience/JWKS and real-token integration |
-| PostgreSQL / RLS | Schema, RLS flags, roles and grants inspected | Verify the actual deployed login and effective role attributes; resolve legacy role risk |
+| PostgreSQL / RLS | Production runtime-security workflow passed for `iam_app_runtime`; protected RLS and audit grants verified | Confirm all deployed instances use the same restricted login; retire/harden the privileged legacy role through a reviewed change |
 | Audit | Append-only migrations/helpers exist | Prove sensitive flows write durable events; verify retention/alerting/export operations |
 | CI evidence | Quality workflow and read-only runtime-security workflow exist | Collect exact run IDs/URLs, artifacts and statuses for release commit and target environment |
 | Control Center UI | Home page is sign-in / account entry only | Build role-gated dashboard and read-only diagnostics with provenance |
@@ -101,7 +101,7 @@ Build the first Control Center increment as **read-only Context + Runtime Diagno
 ## Release / operational blockers to surface prominently
 
 - Production web/API commit mismatch (confirm compatibility before promotion).
-- Actual API runtime database role has not been proven; the legacy `iam_runtime` role has `BYPASSRLS` and elevated role attributes.
+- The production runtime-security workflow proved its selected connection uses `iam_app_runtime`; still verify every deployed API instance and retire/harden the privileged legacy `iam_runtime` role.
 - Production OIDC/JWKS validation not evidenced.
 - Full sensitive-flow audit integration and operational retention/alerting not evidenced.
 - Backup/restore exercise and production runbook approvals not evidenced.
@@ -109,4 +109,4 @@ Build the first Control Center increment as **read-only Context + Runtime Diagno
 
 ## Safety boundary
 
-This snapshot is based on read-only repository and service metadata inspection. No secrets were retrieved, no SQL writes were performed, no deployment was promoted, no workflow was triggered, and no production resource was changed. The next safe verification action is to request/approve a manual run of `Verify runtime database security` against the selected non-production GitHub Environment, then inspect the exact resulting evidence before implementing additional controls.
+This snapshot combines read-only repository/service inspection with the successful read-only production runtime-security workflow linked above. No secret values were retrieved or exposed, no SQL writes were performed, no deployment was promoted, and no production resource was changed. The next safe step is to collect equivalent non-production evidence and integrate the exact workflow/deployment references into the Control Center Evidence Engine without embedding secret configuration or treating a single successful run as proof of all deployments.
