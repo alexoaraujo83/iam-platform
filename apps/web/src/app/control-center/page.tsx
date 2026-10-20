@@ -18,6 +18,15 @@ const modules = [
 type ModuleId = (typeof modules)[number]["id"];
 
 type AccessCheck = { loading: boolean; outcome: string; permissionGranted?: boolean; tenantId?: string | null; apiVersion?: string | null; correlationId?: string | null; detail?: string };
+type Telemetry = {
+  loading: boolean;
+  outcome: string;
+  workflow?: { name: string; status: string; conclusion: string | null; html_url: string | null; head_sha: string | null; head_branch: string; created_at: string | null; updated_at: string | null } | null;
+  tests: Array<{ name: string; status: string; conclusion: string | null }>;
+  deployments: Array<{ context: string; state: string; description: string | null; target_url: string | null; updated_at: string | null }>;
+  evidence: Array<{ label: string; url: string; conclusion: string }>;
+};
+type DiagnosticState = { loading: boolean; label: string; detail?: string; permissionGranted?: boolean };
 
 const integrations = [
   { name: "GitHub", detail: "Código-fonte e governança", icon: "GH" },
@@ -44,6 +53,8 @@ export default function ControlCenterPage() {
   const [query, setQuery] = useState("");
   const [environment, setEnvironment] = useState("All environments");
   const [accessCheck, setAccessCheck] = useState<AccessCheck>({ loading: true, outcome: "checking" });
+  const [telemetry, setTelemetry] = useState<Telemetry>({ loading: true, outcome: "checking", tests: [], deployments: [], evidence: [] });
+  const [diagnostics, setDiagnostics] = useState<DiagnosticState>({ loading: true, label: "A verificar diagnóstico IAM…" });
   useEffect(() => {
     let cancelled = false;
     fetch("/api/control-center", { method: "GET", cache: "no-store" })
@@ -61,6 +72,34 @@ export default function ControlCenterPage() {
       })
       .catch(() => {
         if (!cancelled) setAccessCheck({ loading: false, outcome: "control_center_probe_failed" });
+      });
+    fetch("/api/control-center/telemetry", { method: "GET", cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({})) as Omit<Telemetry, "loading">;
+        if (!cancelled) setTelemetry({
+          loading: false,
+          outcome: typeof payload.outcome === "string" ? payload.outcome : "invalid_response",
+          workflow: payload.workflow ?? null,
+          tests: Array.isArray(payload.tests) ? payload.tests : [],
+          deployments: Array.isArray(payload.deployments) ? payload.deployments : [],
+          evidence: Array.isArray(payload.evidence) ? payload.evidence : [],
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setTelemetry({ loading: false, outcome: "telemetry_request_failed", tests: [], deployments: [], evidence: [] });
+      });
+    fetch("/api/diagnostics", { method: "POST", cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({})) as { outcome?: string; code?: string; permissionGranted?: boolean; apiStatus?: number };
+        if (!cancelled) setDiagnostics({
+          loading: false,
+          label: payload.outcome ?? payload.code ?? (response.ok ? "diagnostic_response_received" : `http_${response.status}`),
+          detail: payload.apiStatus ? `API HTTP ${payload.apiStatus}` : undefined,
+          permissionGranted: payload.permissionGranted,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setDiagnostics({ loading: false, label: "diagnostics_request_failed" });
       });
     return () => { cancelled = true; };
   }, []);
@@ -135,11 +174,32 @@ export default function ControlCenterPage() {
                 }}>Recheck access</button>}
               </section>
               <div className={styles.metricGrid}>
-                {[["Service health","Unknown","Conecte health checks"],["Security findings","Not available","Conecte scanners e auditoria"],["Test executions","No data","Conecte os pipelines de teste"],["Active deployments","Not available","Conecte a Vercel"]].map(([label, value, hint]) => <article className={styles.metricCard} key={label}><div className={styles.metricTop}><span>{label}</span><span className={styles.metricGlyph}>↗</span></div><strong className={styles.metricValue}>{value}</strong><p>{hint}</p><div className={styles.metricLine}><span /></div></article>)}
+                {[["Service health","Unknown","Conecte health checks"],["Security findings","Not available","Conecte scanners e auditoria"],["Test executions",telemetry.loading ? "Checking" : telemetry.tests.find((step) => step.name === "Test")?.conclusion ?? "No evidence","Último GitHub Actions run"],["Active deployments",telemetry.deployments.length ? String(telemetry.deployments.length) : "Not available","Checks de deployment no commit"]].map(([label, value, hint]) => <article className={styles.metricCard} key={label}><div className={styles.metricTop}><span>{label}</span><span className={styles.metricGlyph}>↗</span></div><strong className={styles.metricValue}>{value}</strong><p>{hint}</p><div className={styles.metricLine}><span /></div></article>)}
+              </div>
+
+              <div className={styles.sectionHeading}><div><h2>Live telemetry & evidence</h2><p>Fontes verificadas no servidor; estados ausentes não são simulados</p></div><span className={styles.smallTag}>{telemetry.loading ? "LOADING" : telemetry.outcome.replaceAll("_", " ").toUpperCase()}</span></div>
+              <div className={styles.telemetryGrid}>
+                <article className={styles.telemetryCard}>
+                  <div className={styles.telemetryCardHeader}><strong>GitHub Actions</strong><span className={styles.telemetryState} data-state={telemetry.workflow?.conclusion ?? telemetry.workflow?.status ?? telemetry.outcome}>{telemetry.loading ? "Checking" : telemetry.workflow?.conclusion ?? telemetry.workflow?.status ?? "Unavailable"}</span></div>
+                  {telemetry.workflow ? <><p>{telemetry.workflow.name} · {telemetry.workflow.head_branch}</p><small>Commit: {telemetry.workflow.head_sha?.slice(0, 12) ?? "unknown"}</small>{telemetry.workflow.html_url && <a className={styles.evidenceLink} href={telemetry.workflow.html_url} target="_blank" rel="noreferrer">Open workflow evidence ↗</a>}</> : <p>Não foi possível obter uma execução verificável para este branch.</p>}
+                </article>
+                <article className={styles.telemetryCard}>
+                  <div className={styles.telemetryCardHeader}><strong>Testes e quality gates</strong><span className={styles.telemetryState} data-state={telemetry.tests.some((step) => step.conclusion === "failure") ? "failure" : telemetry.tests.length ? "success" : "unknown"}>{telemetry.tests.length ? `${telemetry.tests.filter((step) => step.conclusion === "success").length}/${telemetry.tests.length} passed` : "No evidence"}</span></div>
+                  {telemetry.tests.length ? <ul className={styles.telemetryList}>{telemetry.tests.map((step, index) => <li key={step.name + index}><span>{step.name}</span><span>{step.conclusion ?? step.status}</span></li>)}</ul> : <p>Resultados de testes ainda indisponíveis nesta leitura.</p>}
+                </article>
+                <article className={styles.telemetryCard}>
+                  <div className={styles.telemetryCardHeader}><strong>Vercel deployments</strong><span className={styles.telemetryState} data-state={telemetry.deployments.some((item) => item.state === "failure" || item.state === "error") ? "failure" : telemetry.deployments.length ? "success" : "unknown"}>{telemetry.deployments.length ? `${telemetry.deployments.length} checks` : "No status"}</span></div>
+                  {telemetry.deployments.length ? <ul className={styles.telemetryList}>{telemetry.deployments.map((item, index) => <li key={item.context + index}><span>{item.context}</span>{item.target_url ? <a href={item.target_url} target="_blank" rel="noreferrer">{item.state} ↗</a> : <span>{item.state}</span>}</li>)}</ul> : <p>Sem checks Vercel publicados no commit observado. O acesso direto à API Vercel requer token próprio.</p>}
+                </article>
+                <article className={styles.telemetryCard}>
+                  <div className={styles.telemetryCardHeader}><strong>IAM diagnostics</strong><span className={styles.telemetryState} data-state={diagnostics.permissionGranted ? "success" : diagnostics.loading ? "unknown" : "failure"}>{diagnostics.loading ? "Checking" : diagnostics.permissionGranted ? "Authorized" : diagnostics.label.replaceAll("_", " ")}</span></div>
+                  <p>{diagnostics.detail ?? (diagnostics.permissionGranted ? "A API confirmou a permissão iam.control_center.read." : "O resultado distingue autorização, configuração e conectividade; consulte o código de resultado.")}</p>
+                  <small>Probe autenticado via endpoint de diagnóstico do próprio app.</small>
+                </article>
               </div>
 
               <div className={styles.lowerGrid}>
-                <section className={styles.panel}><div className={styles.panelHeading}><div><h2>Integration registry</h2><p>Serviços previstos na arquitetura</p></div><span className={styles.counter}>{integrations.length}</span></div><label className={styles.searchBox}><span aria-hidden="true">⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search integrations" aria-label="Search integrations" /></label><div className={styles.integrationList}>{filteredIntegrations.map((item) => <div className={styles.integrationRow} key={item.name}><span className={styles.integrationIcon}>{item.icon}</span><span className={styles.integrationCopy}><strong>{item.name}</strong><small>{item.detail}</small></span><span className={styles.notConnected}><i /> Not connected</span></div>)}{filteredIntegrations.length === 0 && <p className={styles.empty}>Nenhuma integração corresponde à busca.</p>}</div></section>
+                <section className={styles.panel}><div className={styles.panelHeading}><div><h2>Integration registry</h2><p>Serviços previstos na arquitetura</p></div><span className={styles.counter}>{integrations.length}</span></div><label className={styles.searchBox}><span aria-hidden="true">⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search integrations" aria-label="Search integrations" /></label><div className={styles.integrationList}>{filteredIntegrations.map((item) => <div className={styles.integrationRow} key={item.name}><span className={styles.integrationIcon}>{item.icon}</span><span className={styles.integrationCopy}><strong>{item.name}</strong><small>{item.detail}</small></span><span className={styles.notConnected}><i /> {item.name === "GitHub Actions" && telemetry.workflow ? "Live telemetry" : item.name === "Vercel" && telemetry.deployments.length ? "Status available" : "Not connected"}</span></div>)}{filteredIntegrations.length === 0 && <p className={styles.empty}>Nenhuma integração corresponde à busca.</p>}</div></section>
                 <section className={styles.panel}><div className={styles.panelHeading}><div><h2>Module directory</h2><p>Explore a arquitetura funcional</p></div></div><div className={styles.moduleList}>{modules.filter((item) => item.id !== "overview").slice(0, 5).map((item) => <button key={item.id} type="button" className={styles.moduleRow} onClick={() => setActive(item.id)}><span className={styles.moduleIcon}>{item.icon}</span><span><strong>{item.label}</strong><small>{item.description}</small></span><span className={styles.rowArrow}>↗</span></button>)}<button className={styles.viewAll} type="button" onClick={() => setActive("evidence")}>Open evidence center <span>→</span></button></div></section>
               </div>
             </>
