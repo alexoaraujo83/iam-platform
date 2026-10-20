@@ -28,7 +28,7 @@ async function SessionDiagnostics() {
       <div className={styles.session}>
         <h2>Autenticação necessária</h2>
         <p>Nenhuma sessão ativa foi encontrada. Entre pelo Auth0 e volte a esta página.</p>
-        <a className={styles.button} href="/auth/login?returnTo=%2Fdiagnostics">Entrar com Auth0</a>
+        <Link className={styles.button} href="/auth/login?returnTo=%2Fdiagnostics">Entrar com Auth0</Link>
       </div>
     );
   }
@@ -72,7 +72,7 @@ async function SessionDiagnostics() {
       <AuthorizationProbe />
       <div className={styles.actions}>
         <Link className={styles.secondary} href="/">Home</Link>
-        <a className={styles.secondary} href="/auth/logout">Sign out</a>
+        <Link className={styles.secondary} href="/auth/logout">Sign out</Link>
       </div>
     </div>
   );
