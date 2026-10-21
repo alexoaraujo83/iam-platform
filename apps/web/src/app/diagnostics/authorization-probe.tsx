@@ -17,7 +17,19 @@ type DiagnosticResult = {
     principalId: string;
     membershipId: string;
     permissionGranted: boolean;
+    membershipActive: boolean;
+    permissions: string[];
   } | null;
+  validationEvidence?: {
+    signature: { status: string; reason: string };
+    issuer: { status: string; value: string };
+    audience: { status: string; value: string | string[] };
+    algorithm: { status: string; value: string; reason: string };
+    expiration: { status: string; expiresAtUtc: string };
+    membership: { status: string; membershipId: string };
+    permissions: { status: string; required: string; effective: string[] };
+  } | null;
+  ciNegativeCoverage?: { id: string; scenario: string; status: string; evidence: string; executionScope: string }[];
   checks: {
     id: string;
     label: string;
@@ -25,6 +37,9 @@ type DiagnosticResult = {
     actualStatus?: number;
     status: "pass" | "fail" | "not_configured" | "blocked";
     detail?: string;
+    executedAtUtc?: string;
+    result?: string;
+    reason?: string;
   }[];
 };
 
@@ -52,6 +67,19 @@ const statusLabels: Record<DiagnosticResult["checks"][number]["status"], string>
 export default function AuthorizationProbe() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<DiagnosticResult | null>(null);
+
+  function downloadReport() {
+    if (!result) return;
+    const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `iam-auth-evidence-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
 
   async function runProbe() {
     setLoading(true);
@@ -126,6 +154,7 @@ export default function AuthorizationProbe() {
             <p className={styles.note}>
               Um teste só é aprovado quando a resposta JSON da aplicação corresponde ao status e ao código esperados. Respostas de proteção da Vercel ou respostas não JSON são inconclusivas, não falhas de autorização da API.
             </p>
+            <button className={styles.button} type="button" onClick={downloadReport}>Baixar relatório de evidências (JSON)</button>
             <ul className={styles.permissionList}>
               {result.execution && <li><strong>Executado em (UTC):</strong> {result.execution.executedAtUtc}<br /><strong>Ambiente:</strong> {result.execution.environment}<br /><strong>Commit web:</strong> <code>{result.execution.webCommit}</code><br /><strong>Versão/commit da API:</strong> <code>{result.execution.apiVersion ?? "Não informada pela API"}</code></li>}
               {result.authorizationEvidence && (
@@ -140,7 +169,24 @@ export default function AuthorizationProbe() {
                     <strong>Expiração do token (exp, UTC):</strong> {new Date(result.authorizationEvidence.expiresAt * 1000).toISOString()} ({result.authorizationEvidence.expiresAt * 1000 > Date.now() ? "válido no momento da execução" : "expirado no momento da exibição"})<br />
                     <strong>Tenant ID:</strong> <code>{result.authorizationEvidence.tenantId}</code><br />
                     <strong>Principal ID:</strong> <code>{result.authorizationEvidence.principalId}</code><br />
-                    <strong>Membership ID:</strong> <code>{result.authorizationEvidence.membershipId}</code>
+                    <strong>Membership ID:</strong> <code>{result.authorizationEvidence.membershipId}</code><br />
+                    <strong>Membership ativa:</strong> {result.authorizationEvidence.membershipActive ? "Confirmada pela resposta de contexto da API" : "Não confirmada"}<br />
+                    <strong>Permissões efetivas:</strong> {result.authorizationEvidence.permissions.length ? result.authorizationEvidence.permissions.join(", ") : "Nenhuma retornada"}
+                  </div>
+                </li>
+              )}
+              {result.validationEvidence && (
+                <li>
+                  <strong>Matriz de validação JWT e autorização</strong>
+                  <div className={styles.note}>
+                    <strong>Assinatura criptográfica:</strong> {result.validationEvidence.signature.status} — {result.validationEvidence.signature.reason}<br />
+                    <strong>Issuer:</strong> {result.validationEvidence.issuer.status} — <code>{result.validationEvidence.issuer.value}</code><br />
+                    <strong>Audience:</strong> {result.validationEvidence.audience.status} — <code>{Array.isArray(result.validationEvidence.audience.value) ? result.validationEvidence.audience.value.join(", ") : result.validationEvidence.audience.value}</code><br />
+                    <strong>Algoritmo:</strong> {result.validationEvidence.algorithm.status} — <code>{result.validationEvidence.algorithm.value}</code> — {result.validationEvidence.algorithm.reason}<br />
+                    <strong>Expiração:</strong> {result.validationEvidence.expiration.status} — {result.validationEvidence.expiration.expiresAtUtc}<br />
+                    <strong>Membership:</strong> {result.validationEvidence.membership.status} — <code>{result.validationEvidence.membership.membershipId}</code><br />
+                    <strong>Permissão exigida:</strong> {result.validationEvidence.permissions.status} — <code>{result.validationEvidence.permissions.required}</code><br />
+                    <strong>Permissões efetivas consultadas:</strong> {result.validationEvidence.permissions.effective.join(", ") || "Nenhuma retornada"}
                   </div>
                 </li>
               )}
@@ -150,8 +196,15 @@ export default function AuthorizationProbe() {
                   <div className={styles.note}>
                     Esperado: HTTP {check.expectedStatus}
                     {check.actualStatus !== undefined ? `; recebido: HTTP ${check.actualStatus}` : ""}
-                    {check.detail ? ` — ${check.detail}` : ""}
+                    {check.detail ? ` — ${check.detail}` : ""}<br />
+                    {check.executedAtUtc ? `Executado em UTC: ${check.executedAtUtc}. ` : ""}{check.reason ? `Motivo: ${check.reason}` : ""}
                   </div>
+                </li>
+              ))}
+              {result.ciNegativeCoverage?.map((coverage) => (
+                <li key={coverage.id}>
+                  <strong>COBERTURA CI — não é teste live desta execução</strong> — {coverage.scenario}
+                  <div className={styles.note}>{coverage.evidence}<br />{coverage.executionScope}</div>
                 </li>
               ))}
             </ul>
