@@ -51,9 +51,11 @@ const rules = {
           if (node.name.type !== "JSXIdentifier" || node.name.name !== "a") return;
           if (node.attributes.some((attribute) => attribute.type === "JSXAttribute" && attribute.name?.name === "download")) return;
           const href = stringAttribute(node, "href");
-          if (href && href.startsWith("/") && !href.startsWith("//")) {
-            context.report({ node, messageId: "useNextLink" });
-          }
+          if (!href || !href.startsWith("/") || href.startsWith("//")) return;
+          // Auth SDK endpoints must use direct navigation: Link prefetch can
+          // request login/logout routes before the user activates the link.
+          if (href === "/auth/login" || href.startsWith("/auth/login?") || href === "/auth/logout") return;
+          context.report({ node, messageId: "useNextLink" });
         }
       };
     }

@@ -8,6 +8,7 @@ type Check = {
   actualStatus?: number;
   status: "pass" | "fail" | "not_configured" | "blocked";
   detail?: string;
+  executedAtUtc?: string;
 };
 
 function safeResult(status: number, body: unknown) {
@@ -47,17 +48,20 @@ export async function POST(request: NextRequest) {
 
   const checks: Check[] = [];
   let apiVersion: string | null = null;
-  let authorizationEvidence: {
-    issuer: string;
-    subject: string;
-    audience: string | string[];
-    algorithm: string;
-    expiresAt: number;
-    tenantId: string;
-    principalId: string;
-    membershipId: string;
-    permissionGranted: boolean;
-  } | null = null;
+  const authorizationEvidence: {
+    current: {
+      issuer: string;
+      subject: string;
+      audience: string | string[];
+      algorithm: string;
+      expiresAt: number;
+      tenantId: string;
+      principalId: string;
+      membershipId: string;
+      permissionGranted: boolean;
+      permissions: string[];
+    } | null;
+  } = { current: null };
 
   async function probe(
     id: string,
@@ -81,6 +85,7 @@ export async function POST(request: NextRequest) {
         ? await response.json().catch(() => ({})) as Record<string, unknown>
         : {};
       const isApplicationResponse = contentType.includes("application/json");
+      let validIdentityEvidence = false;
       const permissions = Array.isArray(payload.permissions) ? payload.permissions as { resource?: unknown; action?: unknown }[] : [];
       const permissionGranted = permissions.some((permission) =>
         permission?.resource === "iam" && permission?.action === "control_center.read",
@@ -99,7 +104,8 @@ export async function POST(request: NextRequest) {
           typeof payload.principalId === "string" &&
           typeof payload.membershipId === "string"
         ) {
-          authorizationEvidence = {
+          validIdentityEvidence = true;
+          authorizationEvidence.current = {
             issuer: identity.issuer,
             subject: identity.subject,
             audience: identity.audience as string | string[],
@@ -109,30 +115,42 @@ export async function POST(request: NextRequest) {
             principalId: payload.principalId,
             membershipId: payload.membershipId,
             permissionGranted,
+            permissions: permissions
+              .filter((permission) => typeof permission?.resource === "string" && typeof permission?.action === "string")
+              .map((permission) => `${permission.resource}.${permission.action}`),
           };
         }
       }
       const codeMatches = !expectedError || payload.error === expectedError;
       const expectedBehavior = response.status === expectedStatus && codeMatches &&
-        (!requireControlCenterPermission || permissionGranted);
+        (!requireControlCenterPermission || permissionGranted) &&
+        (id !== "valid-session" || validIdentityEvidence);
       checks.push({
         id,
         label,
+        executedAtUtc: new Date().toISOString(),
         expectedStatus,
         actualStatus: response.status,
-        status: !isApplicationResponse ? "blocked" : expectedBehavior ? "pass" : "fail",
+        status: !isApplicationResponse ||
+          (id === "valid-session" && response.status === 200 && !validIdentityEvidence)
+          ? "blocked"
+          : expectedBehavior ? "pass" : "fail",
         detail: !isApplicationResponse
           ? "Resposta não JSON: a proteção da plataforma pode ter interceptado a chamada; resultado não conclusivo."
-          : response.status !== expectedStatus
+          : id === "valid-session" && response.status === 200 && !validIdentityEvidence
+            ? "Resposta HTTP 200 sem evidência de identidade completa; resultado inconclusivo."
+            : response.status !== expectedStatus
             ? typeof payload.error === "string" ? payload.error : "Status inesperado."
             : !codeMatches
               ? `Código inesperado: ${typeof payload.error === "string" ? payload.error : "ausente"}.`
               : requireControlCenterPermission && !permissionGranted
                 ? "HTTP 200 sem a permissão iam.control_center.read na resposta."
+                : id === "valid-session"
+                ? "A API aceitou o token, retornou HTTP 200 e confirmou a permissão iam.control_center.read."
                 : "O endpoint retornou o status e o código de negação esperados.",
       });
     } catch {
-      checks.push({ id, label, expectedStatus, status: "blocked", detail: "API indisponível ou inacessível; teste inconclusivo." });
+      checks.push({ id, label, expectedStatus, status: "blocked", executedAtUtc: new Date().toISOString(), detail: "API indisponível ou inacessível; teste inconclusivo." });
     }
   }
 
@@ -169,6 +187,16 @@ export async function POST(request: NextRequest) {
     detail: "O teste criptográfico de token expirado é gerado com chaves locais controladas no CI. O E2E de Preview requer uma fixture efêmera específica do ambiente; nenhum JWT manual permanente é lido de variáveis de ambiente."
   });
 
+  const reportTimestamp = new Date().toISOString();
+  const evidenceChecks = checks.map((check) => ({
+    ...check,
+    executedAtUtc: check.executedAtUtc ?? reportTimestamp,
+    result: check.status === "pass" ? "approved" : check.status === "fail" ? "rejected" : "inconclusive",
+    reason: check.detail ?? (check.status === "pass" ? "Comportamento observado corresponde ao esperado." : "Não foi possível confirmar o comportamento esperado."),
+  }));
+  // Read the mutable holder after all awaited probes have completed.
+  // This preserves the evidence type without a cast or weakening type safety.
+  const confirmedEvidence = authorizationEvidence.current;
   const failed = checks.some((check) => check.status === "fail");
   const blocked = checks.some((check) => check.status === "blocked");
   const notConfigured = checks.some((check) => check.status === "not_configured");
@@ -176,12 +204,27 @@ export async function POST(request: NextRequest) {
     ok: !failed && !blocked && !notConfigured,
     outcome: failed ? "security_checks_failed" : blocked ? "security_checks_inconclusive" : notConfigured ? "security_checks_partially_configured" : "security_checks_passed",
     execution: {
-      executedAtUtc: new Date().toISOString(),
+      executedAtUtc: reportTimestamp,
       environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "unknown",
       webCommit: process.env.VERCEL_GIT_COMMIT_SHA ?? "unknown",
       apiVersion,
     },
-    authorizationEvidence,
-    checks,
+    authorizationEvidence: confirmedEvidence,
+    validationEvidence: confirmedEvidence ? {
+      signature: { status: "validated_by_api", reason: "A API só retorna identityEvidence depois que o verificador OIDC conclui jwtVerify; este relatório registra a evidência retornada, não uma segunda verificação independente." },
+      issuer: { status: "accepted_by_api", value: confirmedEvidence.issuer },
+      audience: { status: "accepted_by_api", value: confirmedEvidence.audience },
+      algorithm: { status: "accepted_by_api", value: confirmedEvidence.algorithm, reason: "Algoritmo informado pela identidade verificada; a allowlist é aplicada pelo verificador OIDC no servidor." },
+      expiration: { status: confirmedEvidence.expiresAt * 1000 > Date.now() ? "valid_at_execution" : "expired", expiresAtUtc: new Date(confirmedEvidence.expiresAt * 1000).toISOString() },
+      membership: { status: "membership_id_returned_not_independently_verified", membershipId: confirmedEvidence.membershipId, reason: "A resposta contém um membershipId, mas este relatório não recebeu um campo explícito de estado da associação; não infere estado ativo apenas pela presença do identificador." },
+      permissions: { status: confirmedEvidence.permissionGranted ? "granted" : "missing", required: "iam.control_center.read", effective: confirmedEvidence.permissions },
+    } : null,
+    ciNegativeCoverage: [
+      { id: "expired-token", scenario: "JWT expirado", status: "covered_by_unit_test", expectedOutcome: "Rejeição pelo verificador OIDC", observedOutcome: "O teste exige que o verificador lance erro", httpStatus: null, result: "asserted_in_unit_test", evidence: "packages/identity/src/index.test.ts — rejects expired tokens", executionScope: "Teste unitário com chaves efêmeras; HTTP N/A e não é uma chamada negativa ao tenant real nesta execução." },
+      { id: "wrong-issuer", scenario: "JWT com issuer incorreto", status: "covered_by_unit_test", expectedOutcome: "Rejeição pelo verificador OIDC", observedOutcome: "O teste exige que o verificador lance erro", httpStatus: null, result: "asserted_in_unit_test", evidence: "packages/identity/src/index.test.ts — rejects a token with the wrong issuer", executionScope: "Teste unitário com chaves efêmeras; HTTP N/A e não é uma chamada negativa ao tenant real nesta execução." },
+      { id: "wrong-audience", scenario: "JWT com audience incorreta", status: "covered_by_unit_test", expectedOutcome: "Rejeição pelo verificador OIDC", observedOutcome: "O teste exige que o verificador lance erro", httpStatus: null, result: "asserted_in_unit_test", evidence: "packages/identity/src/index.test.ts — rejects a token with the wrong audience", executionScope: "Teste unitário com chaves efêmeras; HTTP N/A e não é uma chamada negativa ao tenant real nesta execução." },
+      { id: "wrong-algorithm", scenario: "JWT com algoritmo fora da allowlist", status: "covered_by_unit_test", expectedOutcome: "Rejeição pelo verificador OIDC", observedOutcome: "O teste exige que o verificador lance erro", httpStatus: null, result: "asserted_in_unit_test", evidence: "packages/identity/src/index.test.ts — rejects an algorithm not in the configured allowlist", executionScope: "Teste unitário com chaves efêmeras; HTTP N/A e não é uma chamada negativa ao tenant real nesta execução." },
+    ],
+    checks: evidenceChecks,
   });
 }
