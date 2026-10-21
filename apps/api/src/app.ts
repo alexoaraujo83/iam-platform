@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extractBearerToken } from "@iam-platform/identity";
 import type { PreAuthSecurityEvent } from "@iam-platform/database";
-import type { RuntimeSnapshot, EvidenceStatus, ControlCenterEnvironment } from "@iam-platform/contracts";
+import type { RuntimeSnapshot, EvidenceStatus, ControlCenterEnvironment, DatabaseRuntimeIdentityEvidence } from "@iam-platform/contracts";
 
 export interface RequiredTenantPermission {
   readonly resource: string;
@@ -29,6 +29,13 @@ export type ResolveTenantContext = (
   requiredPermission?: RequiredTenantPermission
 ) => Promise<TenantContextResponse | null>;
 export type CheckReadiness = () => Promise<boolean>;
+export interface DatabaseRuntimeIdentity {
+  readonly roleName: string | null;
+  readonly databaseName: string | null;
+  readonly branchId: string | null;
+  readonly projectId: string | null;
+}
+export type GetDatabaseRuntimeIdentity = () => Promise<DatabaseRuntimeIdentity>;
 export type RecordPreAuthSecurityEvent = (event: PreAuthSecurityEvent) => Promise<void>;
 export type ApiRequestHandler = (request: IncomingMessage, response: ServerResponse) => void;
 
@@ -120,7 +127,8 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
 export function createApiHandler(
   resolveTenantContext: ResolveTenantContext,
   checkReadiness: CheckReadiness,
-  recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent
+  recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent,
+  getDatabaseRuntimeIdentity?: GetDatabaseRuntimeIdentity
 ): ApiRequestHandler {
   // Bound unauthenticated write amplification per socket peer. Do not trust
   // X-Forwarded-For here; it is only safe behind a separately trusted proxy.
@@ -221,6 +229,33 @@ export function createApiHandler(
         const commitSha = safeMetadata(process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GITHUB_SHA, /^[0-9a-f]{7,64}$/i);
         const deploymentId = safeMetadata(process.env.VERCEL_DEPLOYMENT_ID, /^[A-Za-z0-9_-]{1,128}$/);
         const deploymentUrl = safeDeploymentUrl(process.env.VERCEL_URL);
+        let rawDatabaseIdentity: DatabaseRuntimeIdentity | null = null;
+        try {
+          rawDatabaseIdentity = await getDatabaseRuntimeIdentity?.() ?? null;
+        } catch {
+          // Do not expose driver errors or connection details in diagnostics.
+        }
+        const databaseIdentity: DatabaseRuntimeIdentityEvidence = {
+          roleName: safeMetadata(rawDatabaseIdentity?.roleName ?? undefined, /^[a-z_][a-z0-9_]{0,62}$/),
+          databaseName: safeMetadata(rawDatabaseIdentity?.databaseName ?? undefined, /^[a-z_][a-z0-9_]{0,62}$/),
+          branchId: safeMetadata(rawDatabaseIdentity?.branchId ?? undefined, /^br-[a-z0-9-]{8,64}$/),
+          projectId: safeMetadata(rawDatabaseIdentity?.projectId ?? undefined, /^[a-z0-9-]{8,128}$/),
+          expectedBranchId: safeMetadata(process.env.IAM_EXPECTED_NEON_BRANCH_ID, /^br-[a-z0-9-]{8,64}$/),
+          expectedProjectId: safeMetadata(process.env.IAM_EXPECTED_NEON_PROJECT_ID, /^[a-z0-9-]{8,128}$/),
+          verified: false
+        };
+        const identityVerified = databaseIdentity.roleName === "iam_app_runtime"
+          && databaseIdentity.databaseName === "iam_platform"
+          && databaseIdentity.branchId !== null
+          && databaseIdentity.projectId !== null
+          && databaseIdentity.expectedBranchId !== null
+          && databaseIdentity.expectedProjectId !== null
+          && databaseIdentity.branchId === databaseIdentity.expectedBranchId
+          && databaseIdentity.projectId === databaseIdentity.expectedProjectId;
+        const verifiedDatabaseIdentity: DatabaseRuntimeIdentityEvidence = {
+          ...databaseIdentity,
+          verified: identityVerified
+        };
         const checks = [
           {
             id: "api.runtime", name: "API runtime", status: "pass" as const, severity: "info" as const,
@@ -234,6 +269,17 @@ export function createApiHandler(
             summary: databaseReady ? "Database readiness query succeeded" : "Database readiness query failed", environment,
             source: { system: "postgresql-readiness", reference: null, observedAt: now },
             checkedAt: now, validUntil: new Date(Date.now() + 30_000).toISOString(), correlationId
+          },
+          {
+            id: "database.identity", name: "Database runtime identity",
+            status: identityVerified ? "pass" as const : "fail" as const,
+            severity: identityVerified ? "info" as const : "critical" as const,
+            summary: identityVerified
+              ? "Live database role, project and branch match the expected runtime configuration"
+              : "Live database role, project, branch or expected configuration does not match",
+            environment,
+            source: { system: "neon-runtime-identity", reference: verifiedDatabaseIdentity.branchId, observedAt: now },
+            checkedAt: now, validUntil: new Date(Date.now() + 60_000).toISOString(), correlationId
           },
           {
             id: "deployment.metadata", name: "Deployment metadata",
@@ -251,9 +297,9 @@ export function createApiHandler(
           ? "fail" : checks.every((check) => check.status === "pass") ? "pass" : "unknown";
         const snapshot: RuntimeSnapshot = {
           id: randomUUID(), environment, capturedAt: now, commitSha, deploymentId, deploymentUrl,
-          checks, overallStatus, correlationId
+          databaseIdentity: verifiedDatabaseIdentity, checks, overallStatus, correlationId
         };
-        sendJson(response, databaseReady ? 200 : 503, snapshot);
+        sendJson(response, databaseReady && identityVerified ? 200 : 503, snapshot);
         return;
       }
       sendJson(response, 200, {
@@ -320,7 +366,8 @@ export function createApiHandler(
 export function createApiServer(
   resolveTenantContext: ResolveTenantContext,
   checkReadiness: CheckReadiness,
-  recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent
+  recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent,
+  getDatabaseRuntimeIdentity?: GetDatabaseRuntimeIdentity
 ): Server {
-  return createServer(createApiHandler(resolveTenantContext, checkReadiness, recordPreAuthSecurityEvent));
+  return createServer(createApiHandler(resolveTenantContext, checkReadiness, recordPreAuthSecurityEvent, getDatabaseRuntimeIdentity));
 }
