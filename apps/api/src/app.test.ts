@@ -358,6 +358,30 @@ describe("IAM HTTP API", () => {
     expect(await response.json()).toEqual({ error: "active_membership_required" });
   });
 
+  it("fails closed and audits when the server-side bootstrap flag is disabled", async () => {
+    vi.stubEnv("IAM_IDENTITY_BOOTSTRAP_ENABLED", "false");
+    const provisionIdentity = vi.fn<ProvisionIdentity>();
+    const recordSecurityEvent = vi.fn<RecordPreAuthSecurityEvent>().mockResolvedValue(undefined);
+    const response = await requestApi(
+      vi.fn<ResolveTenantContext>(),
+      "/v1/identity/bootstrap",
+      { authorization: "Bearer verified-access-token" },
+      async () => true,
+      recordSecurityEvent,
+      provisionIdentity,
+      "POST"
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "identity_provisioning_not_enabled" });
+    expect(provisionIdentity).not.toHaveBeenCalled();
+    expect(recordSecurityEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: "identity.provisioning_failed",
+      outcome: "failure",
+      metadata: { reason: "not_enabled" }
+    }));
+  });
+
   it("provisions a verified identity through the explicit bootstrap endpoint", async () => {
     const provisionIdentity = vi.fn<ProvisionIdentity>().mockResolvedValue(undefined);
     const resolver = vi.fn<ResolveTenantContext>();
