@@ -1,4 +1,4 @@
-import { Auth0Client, type OnCallbackHook } from "@auth0/nextjs-auth0/server";
+import { Auth0Client } from "@auth0/nextjs-auth0/server";
 import { NextResponse } from "next/server";
 
 const audience = process.env.AUTH0_AUDIENCE?.trim();
@@ -9,7 +9,9 @@ const audience = process.env.AUTH0_AUDIENCE?.trim();
  */
 const identityBootstrapEnabled = process.env.IAM_IDENTITY_BOOTSTRAP_ENABLED === "true";
 
-const identityBootstrapCallback: OnCallbackHook = async (error, context, session) => {
+type Auth0Callback = NonNullable<ConstructorParameters<typeof Auth0Client>[0]["onCallback"]>;
+
+const identityBootstrapCallback: Auth0Callback = async (error, context, session) => {
   const baseUrl = context.appBaseUrl ?? process.env.APP_BASE_URL ?? "http://localhost:3000";
   const candidateReturnTo = context.returnTo ?? "/";
   const returnTo = candidateReturnTo.startsWith("/")
