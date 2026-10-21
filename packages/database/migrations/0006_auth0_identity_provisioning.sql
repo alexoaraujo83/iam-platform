@@ -103,6 +103,8 @@ GRANT SELECT, INSERT ON TABLE public.principals TO iam_identity_provisioner_owne
 GRANT SELECT, INSERT ON TABLE public.external_identities TO iam_identity_provisioner_owner;
 GRANT INSERT ON TABLE public.global_security_events TO iam_identity_provisioner_owner;
 
+SET ROLE iam_identity_provisioner_owner;
+
 CREATE OR REPLACE FUNCTION public.provision_external_identity(
   p_issuer text,
   p_subject text
@@ -158,8 +160,7 @@ BEGIN
 END;
 $function$;
 
-ALTER FUNCTION public.provision_external_identity(text, text)
-  OWNER TO iam_identity_provisioner_owner;
+RESET ROLE;
 
 REVOKE CREATE ON SCHEMA public FROM iam_identity_provisioner_owner;
 REVOKE ALL ON FUNCTION public.provision_external_identity(text, text) FROM PUBLIC;
