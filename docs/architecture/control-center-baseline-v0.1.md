@@ -124,3 +124,25 @@ Esses itens são observações de código/documentação; não comprovam o estad
 ## Próxima ação
 
 Concluir o discovery da estrutura Web/API/packages, do CI e das integrações. Só então selecionar o primeiro incremento de código, priorizando Context + Runtime + Test Runner + Evidence Engine, sem reescrever o núcleo IAM.
+
+## Gate de identidade real do banco em runtime (implementação nesta PR; ainda não implantada)
+
+O endpoint protegido `GET /v1/tenants/{tenant}/control-center/runtime` consulta a mesma pool PostgreSQL usada pela API e retorna evidência sanitizada de:
+
+- `current_user` — deve ser `iam_app_runtime`;
+- `current_database()` — deve ser `iam_platform`;
+- `current_setting('neon.branch_id', true)`;
+- `current_setting('neon.project_id', true)`.
+
+A resposta inclui `databaseIdentity.verified` e o check crítico `database.identity`. A API responde HTTP 503 se a role, o projeto, a branch ou a configuração esperada estiver ausente/incorreta. O endpoint não retorna host, URL de conexão, senha, token nem erro bruto do driver e continua protegido pela permissão `iam.control_center.read`.
+
+Configuração não secreta exigida por ambiente:
+
+- Development: `IAM_EXPECTED_NEON_BRANCH_ID=br-super-term-b6dt6vec`
+- Preview: `IAM_EXPECTED_NEON_BRANCH_ID=br-sweet-firefly-b6mr92zu`
+- Production: `IAM_EXPECTED_NEON_BRANCH_ID=br-soft-butterfly-b6i5d7bm`
+- Todos: `IAM_EXPECTED_NEON_PROJECT_ID=curly-fog-91868394`
+
+Essas variáveis foram cadastradas no projeto Vercel da API para deployments futuros; elas não alteram o ambiente de deployments já existentes. A quota de deployment atualmente bloqueia a implantação do código e a confirmação via endpoint permanece pendente.
+
+A role legada `iam_runtime` ainda possui atributos privilegiados e membership em `neon_superuser` nos três ambientes. Não a alterar até que o endpoint prove a identidade efetiva da pool API e exista plano de migração/rollback revisado.
