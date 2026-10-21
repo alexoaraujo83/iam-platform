@@ -14,7 +14,8 @@ BEGIN
 END
 $roles$;
 
-GRANT USAGE ON SCHEMA public TO iam_identity_provisioner_owner;
+-- CREATE is temporary and required by PostgreSQL for function ownership transfer.
+GRANT USAGE, CREATE ON SCHEMA public TO iam_identity_provisioner_owner;
 GRANT SELECT, INSERT ON TABLE public.principals TO iam_identity_provisioner_owner;
 GRANT SELECT, INSERT ON TABLE public.external_identities TO iam_identity_provisioner_owner;
 
@@ -35,10 +36,10 @@ BEGIN
     RAISE EXCEPTION 'invalid_external_identity' USING ERRCODE = '22023';
   END IF;
 
-  -- Serialize identical keys within the transaction. Hash collisions only
-  -- serialize unrelated identities; they cannot merge identities.
+  -- Advisory-lock collisions only serialize unrelated identities; uniqueness
+  -- remains enforced by the external_identities constraint.
   PERFORM pg_advisory_xact_lock(
-    hashtextextended(p_issuer || chr(0) || p_subject, 0)
+    hashtextextended(p_issuer || ':' || p_subject, 0)
   );
 
   SELECT ei.principal_id
@@ -64,9 +65,8 @@ $function$;
 ALTER FUNCTION public.provision_external_identity(text, text)
   OWNER TO iam_identity_provisioner_owner;
 
+REVOKE CREATE ON SCHEMA public FROM iam_identity_provisioner_owner;
 REVOKE ALL ON FUNCTION public.provision_external_identity(text, text) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.provision_external_identity(text, text) FROM anon;
-REVOKE ALL ON FUNCTION public.provision_external_identity(text, text) FROM authenticated;
 GRANT EXECUTE ON FUNCTION public.provision_external_identity(text, text)
   TO iam_identity_provisioner;
 
