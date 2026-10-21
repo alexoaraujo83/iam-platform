@@ -4,7 +4,9 @@ import { provisionExternalIdentity } from "./provision-external-identity.js";
 
 describe("provisionExternalIdentity", () => {
   it("calls only the narrow database function with issuer and subject", async () => {
-    const query = vi.fn(async () => ({ rows: [{ principal_id: "principal-123" }] }));
+    const query = vi.fn(async (_sql: string, _values?: unknown[]) => ({
+      rows: [{ principal_id: "principal-123" }]
+    }));
     const result = await provisionExternalIdentity(
       { query } as unknown as Pick<Pool, "query">,
       { issuer: "https://issuer.example.test/", subject: "auth0|subject-123" }
@@ -22,11 +24,11 @@ describe("provisionExternalIdentity", () => {
   });
 
   it.each([
-    [{ issuer: "", subject: "subject" }],
-    [{ issuer: "https://issuer.example.test/", subject: " " }],
-    [{ issuer: " ", subject: "subject" }]
+    { issuer: "", subject: "subject" },
+    { issuer: "https://issuer.example.test/", subject: " " },
+    { issuer: " ", subject: "subject" }
   ])("rejects invalid identity inputs before touching the database", async (identity) => {
-    const query = vi.fn();
+    const query = vi.fn(async (_sql: string, _values?: unknown[]) => ({ rows: [] }));
     await expect(
       provisionExternalIdentity(
         { query } as unknown as Pick<Pool, "query">,
@@ -37,7 +39,7 @@ describe("provisionExternalIdentity", () => {
   });
 
   it("fails closed if the database function returns no principal ID", async () => {
-    const query = vi.fn(async () => ({ rows: [] }));
+    const query = vi.fn(async (_sql: string, _values?: unknown[]) => ({ rows: [] }));
     await expect(
       provisionExternalIdentity(
         { query } as unknown as Pick<Pool, "query">,
@@ -47,7 +49,7 @@ describe("provisionExternalIdentity", () => {
   });
 
   it("propagates database errors without converting them into success", async () => {
-    const query = vi.fn(async () => {
+    const query = vi.fn(async (_sql: string, _values?: unknown[]) => {
       throw new Error("database_unavailable");
     });
     await expect(
