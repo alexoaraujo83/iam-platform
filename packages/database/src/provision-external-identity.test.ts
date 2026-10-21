@@ -13,13 +13,10 @@ describe("provisionExternalIdentity", () => {
     );
 
     expect(query).toHaveBeenCalledTimes(1);
-    expect(query.mock.calls[0]?.[0]).toBe(
-      "SELECT public.provision_external_identity($1, $2) AS principal_id"
+    expect(query).toHaveBeenCalledWith(
+      "SELECT public.provision_external_identity($1, $2) AS principal_id",
+      ["https://issuer.example.test/", "auth0|subject-123"]
     );
-    expect(query.mock.calls[0]?.[1]).toEqual([
-      "https://issuer.example.test/",
-      "auth0|subject-123"
-    ]);
     expect(result).toEqual({ principalId: "principal-123" });
   });
 
