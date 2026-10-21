@@ -19,8 +19,8 @@ A função deve validar entradas não vazias, fazer a criação de principal/ide
 
 ## Integração de aplicação
 
-- Após callback bem-sucedido do Auth0, o Web chama `POST /v1/identity/bootstrap` somente quando `IAM_IDENTITY_BOOTSTRAP_ENABLED=true` (habilitar primeiro apenas em Preview). O endpoint aceita somente bearer token; não aceita `issuer`/`subject` no corpo ou query string. A API valida o token com o verificador OIDC configurado antes de chamar a função SQL.
-- O endpoint usa `IDENTITY_PROVISIONER_DATABASE_URL` opcional, verifica que a sessão PostgreSQL é `iam_identity_provisioner_login` e retorna `503` sanitizado se a credencial não estiver configurada. O Web envia `x-vercel-protection-bypass` apenas em chamada server-to-server quando o secret está presente; não expõe esse secret ao browser. As rotas tenant-scoped existentes não dependem dessa variável.
+- Este PR adiciona `POST /v1/identity/bootstrap`; a chamada pós-login deve ser ligada ao handler de callback existente da PR #19, sem duplicar ou substituir seu tratamento de `state`, sessão e redirecionamento. Só habilitar `IAM_IDENTITY_BOOTSTRAP_ENABLED=true` após ambas as alterações estarem implantadas e validadas, primeiro em Preview. O endpoint aceita somente bearer token; não aceita `issuer`/`subject` no corpo ou query string. A API valida o token com o verificador OIDC configurado antes de chamar a função SQL.
+- O endpoint usa `IDENTITY_PROVISIONER_DATABASE_URL` opcional, verifica que a sessão PostgreSQL é `iam_identity_provisioner_login` e retorna `503` sanitizado se a credencial não estiver configurada. A futura chamada server-to-server do Web deve enviar `x-vercel-protection-bypass` apenas quando o secret estiver presente; nunca expor esse secret ao browser. As rotas tenant-scoped existentes não dependem dessa variável.
 - O bootstrap é limitado a 10 chamadas por peer por minuto, não devolve `principalId` e nunca cria tenant/membership. Sucesso de criação é auditado atomicamente pela função; falhas são registradas em `global_security_events` sem tokens ou claims.
 - Verificar o JWT antes de chamar o serviço de provisionamento.
 - O endpoint/handler de login não pode aceitar issuer/subject fornecidos diretamente pelo cliente.
@@ -45,6 +45,6 @@ A função deve validar entradas não vazias, fazer a criação de principal/ide
 ## Gates de implantação
 
 - Não criar credencial de provisionamento nem aplicar migração diretamente em Production nesta etapa.
-- Provisionar `iam_identity_provisioner_login` com credencial gerenciada fora do repositório, verificar atributos/memberships efetivos no PostgreSQL e confirmar que o deployment usa a branch Neon Preview. O endpoint de bootstrap está no código, mas só fica ativo quando a variável separada for configurada e a API for implantada.
+- Provisionar `iam_identity_provisioner_login` com credencial gerenciada fora do repositório, verificar atributos/memberships efetivos no PostgreSQL e confirmar que o deployment usa a branch Neon Preview. O endpoint de bootstrap está no código, mas a chamada pós-login continua pendente na PR #19; manter a flag desativada até o handler integrado, a API e o banco estarem implantados e validados.
 - Executar CI no SHA exato, testes de concorrência/RLS e revisão independente do diff.
 - Manter PR em Draft até as evidências acima estarem completas.
