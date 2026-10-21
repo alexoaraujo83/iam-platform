@@ -30,6 +30,7 @@ CREATE ROLE iam_owner NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NO
 CREATE ROLE iam_identity_provisioner_owner NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
 CREATE ROLE iam_identity_provisioner NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
 CREATE ROLE iam_identity_provisioner_login LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
+CREATE ROLE iam_app_runtime NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
 GRANT iam_identity_provisioner_owner, iam_identity_provisioner TO iam_owner;
 GRANT iam_identity_provisioner TO iam_identity_provisioner_login;
 SQL
@@ -40,6 +41,8 @@ SQL
 first_id="$("${psql_cmd[@]}" -Atqc "SELECT public.provision_external_identity('https://preview.example.test/','auth0|identity-test-1')")"
 second_id="$("${psql_cmd[@]}" -Atqc "SELECT public.provision_external_identity('https://preview.example.test/','auth0|identity-test-1')")"
 test "$first_id" = "$second_id"
+other_issuer_id="$("${psql_cmd[@]}" -Atqc "SELECT public.provision_external_identity('https://other-preview.example.test/','auth0|identity-test-1')")"
+test "$other_issuer_id" != "$first_id"
 
 # Two concurrent requests for the same identity must converge on one principal.
 tmpdir="$(mktemp -d)"
@@ -66,6 +69,10 @@ if "${psql_cmd[@]}" -Atqc "SELECT public.provision_external_identity(' ','auth0|
   echo "empty_issuer_was_accepted" >&2
   exit 1
 fi
+if "${psql_cmd[@]}" -Atqc "SELECT public.provision_external_identity('https://preview.example.test/',' ')" >/dev/null 2>&1; then
+  echo "empty_subject_was_accepted" >&2
+  exit 1
+fi
 
 # Executor has EXECUTE only: no direct table access, no BYPASSRLS, no login.
 "${psql_cmd[@]}" <<'SQL'
@@ -78,8 +85,18 @@ BEGIN
   IF has_table_privilege('iam_identity_provisioner_login', 'public.principals', 'SELECT')
      OR has_table_privilege('iam_identity_provisioner_login', 'public.principals', 'INSERT')
      OR has_table_privilege('iam_identity_provisioner_login', 'public.external_identities', 'SELECT')
-     OR has_table_privilege('iam_identity_provisioner_login', 'public.external_identities', 'INSERT') THEN
-    RAISE EXCEPTION 'provisioner_login_has_direct_identity_table_access';
+     OR has_table_privilege('iam_identity_provisioner_login', 'public.external_identities', 'INSERT')
+     OR has_table_privilege('iam_identity_provisioner_login', 'public.tenants', 'INSERT')
+     OR has_table_privilege('iam_identity_provisioner_login', 'public.memberships', 'INSERT')
+     OR has_table_privilege('iam_identity_provisioner_login', 'public.membership_roles', 'INSERT')
+     OR has_table_privilege('iam_identity_provisioner_login', 'public.roles', 'INSERT')
+     OR has_table_privilege('iam_identity_provisioner_login', 'public.role_permissions', 'INSERT')
+     OR has_table_privilege('iam_identity_provisioner_login', 'public.permissions', 'INSERT') THEN
+    RAISE EXCEPTION 'provisioner_login_has_direct_table_access';
+  END IF;
+  IF has_function_privilege('iam_app_runtime',
+       'public.provision_external_identity(text,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'runtime_can_execute_identity_provisioning';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='iam_identity_provisioner'
       AND (rolcanlogin OR rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb OR rolreplication)) THEN
@@ -105,8 +122,8 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'unexpected_provisioning_role_membership';
   END IF;
-  IF (SELECT count(*) FROM public.principals) <> 2
-     OR (SELECT count(*) FROM public.external_identities) <> 2 THEN
+  IF (SELECT count(*) FROM public.principals) <> 3
+     OR (SELECT count(*) FROM public.external_identities) <> 3 THEN
     RAISE EXCEPTION 'unexpected_identity_row_counts';
   END IF;
   IF EXISTS (SELECT 1 FROM public.tenants)
