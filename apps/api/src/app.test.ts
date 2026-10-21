@@ -367,7 +367,8 @@ describe("IAM HTTP API", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ status: "identity_provisioned" });
-    expect(provisionIdentity).toHaveBeenCalledExactlyOnceWith("verified-access-token");
+    expect(provisionIdentity).toHaveBeenCalledTimes(1);
+    expect(provisionIdentity).toHaveBeenCalledWith("verified-access-token");
     expect(resolver).not.toHaveBeenCalled();
     expect(recordSecurityEvent).not.toHaveBeenCalled();
   });
