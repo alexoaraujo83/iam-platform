@@ -42,6 +42,8 @@ GRANT iam_identity_provisioner TO iam_identity_provisioner_login;
 SQL
 
 "${psql_cmd[@]}" -f "$root/packages/database/migrations/0006_auth0_identity_provisioning.sql"
+# Reapply in the disposable database to prove the migration is safely repeatable.
+"${psql_cmd[@]}" -f "$root/packages/database/migrations/0006_auth0_identity_provisioning.sql"
 
 # The function must be idempotent, scoped to issuer+subject, and create no access.
 first_id="$("${psql_cmd[@]}" -Atqc "SELECT public.provision_external_identity('https://preview.example.test/','auth0|identity-test-1')")"
