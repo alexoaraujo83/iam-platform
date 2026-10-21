@@ -63,6 +63,9 @@ jobs:
       - name: Install locked dependencies
         id: frozen_install
         run: pnpm install --frozen-lockfile
+      - name: Test Auth0 identity provisioning against disposable PostgreSQL
+        if: ${{ !cancelled() && steps.frozen_install.outcome == 'success' }}
+        run: bash packages/database/scripts/test-auth0-identity-provisioning.sh
       - name: Audit locked dependencies for high and critical vulnerabilities
         id: dependency_audit
         run: pnpm audit --audit-level high
