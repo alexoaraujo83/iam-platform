@@ -25,7 +25,7 @@ async function requestApi(
 ): Promise<Response> {
   if (!process.env.IAM_EXPECTED_NEON_BRANCH_ID) vi.stubEnv("IAM_EXPECTED_NEON_BRANCH_ID", "br-test-12345678");
   if (!process.env.IAM_EXPECTED_NEON_PROJECT_ID) vi.stubEnv("IAM_EXPECTED_NEON_PROJECT_ID", "test-project-12345678");
-  const server = createApiServer(resolver, checkReadiness, recordSecurityEvent, getDatabaseRuntimeIdentity);
+  const server = createApiServer(resolver, checkReadiness, recordSecurityEvent, { getDatabaseRuntimeIdentity });
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as AddressInfo;
