@@ -10,7 +10,15 @@ case "$DATABASE_URL" in
 esac
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-psql_cmd=(psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1)
+# Keep the migration test isolated from the shared iam_test database used by
+# the existing RLS integration suite in the same CI job.
+test_database_url="${DATABASE_URL%/iam_test}/iam_identity_provisioning_test"
+if [[ "$test_database_url" == "$DATABASE_URL" ]]; then
+  echo "unexpected_ci_database_name" >&2
+  exit 2
+fi
+psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "CREATE DATABASE iam_identity_provisioning_test"
+psql_cmd=(psql "$test_database_url" -X -v ON_ERROR_STOP=1)
 
 "${psql_cmd[@]}" -f "$root/packages/database/migrations/0001_identity_tenancy.sql"
 "${psql_cmd[@]}" -f "$root/packages/database/migrations/0002_durable_audit_controls.sql"
