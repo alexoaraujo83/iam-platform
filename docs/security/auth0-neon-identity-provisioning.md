@@ -19,8 +19,8 @@ A função deve validar entradas não vazias, fazer a criação de principal/ide
 
 ## Integração de aplicação
 
-- O endpoint explícito `POST /v1/identity/bootstrap` aceita somente bearer token; não aceita `issuer`/`subject` no corpo ou query string. A API valida o token com o verificador OIDC configurado antes de chamar a função SQL.
-- O endpoint usa `IDENTITY_PROVISIONER_DATABASE_URL` opcional, verifica que a sessão PostgreSQL é `iam_identity_provisioner_login` e retorna `503` sanitizado se a credencial não estiver configurada. As rotas tenant-scoped existentes não dependem dessa variável.
+- Após callback bem-sucedido do Auth0, o Web chama `POST /v1/identity/bootstrap` somente quando `IAM_IDENTITY_BOOTSTRAP_ENABLED=true` (habilitar primeiro apenas em Preview). O endpoint aceita somente bearer token; não aceita `issuer`/`subject` no corpo ou query string. A API valida o token com o verificador OIDC configurado antes de chamar a função SQL.
+- O endpoint usa `IDENTITY_PROVISIONER_DATABASE_URL` opcional, verifica que a sessão PostgreSQL é `iam_identity_provisioner_login` e retorna `503` sanitizado se a credencial não estiver configurada. O Web envia `x-vercel-protection-bypass` apenas em chamada server-to-server quando o secret está presente; não expõe esse secret ao browser. As rotas tenant-scoped existentes não dependem dessa variável.
 - O bootstrap é limitado a 10 chamadas por peer por minuto, não devolve `principalId` e nunca cria tenant/membership. Sucesso de criação é auditado atomicamente pela função; falhas são registradas em `global_security_events` sem tokens ou claims.
 - Verificar o JWT antes de chamar o serviço de provisionamento.
 - O endpoint/handler de login não pode aceitar issuer/subject fornecidos diretamente pelo cliente.
