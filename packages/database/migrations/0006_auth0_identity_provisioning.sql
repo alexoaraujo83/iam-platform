@@ -26,32 +26,66 @@ BEGIN
        AND NOT rolbypassrls
        AND NOT rolcreaterole
        AND NOT rolcreatedb
+       AND NOT rolsuper
+       AND NOT rolreplication
   ) THEN
     RAISE EXCEPTION 'identity_provisioner_role_missing_or_misconfigured';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_roles
+     WHERE rolname = 'iam_identity_provisioner_login'
+       AND rolcanlogin
+       AND NOT rolsuper
+       AND NOT rolbypassrls
+       AND NOT rolcreaterole
+       AND NOT rolcreatedb
+       AND NOT rolreplication
+  ) THEN
+    RAISE EXCEPTION 'identity_provisioner_login_role_missing_or_misconfigured';
   END IF;
 END;
 $roles$;
 
 -- Enforce role attributes even if a same-named role already existed.
-ALTER ROLE iam_identity_provisioner_owner NOLOGIN BYPASSRLS NOCREATEROLE NOCREATEDB;
-ALTER ROLE iam_identity_provisioner NOLOGIN NOBYPASSRLS NOCREATEROLE NOCREATEDB;
+ALTER ROLE iam_identity_provisioner_owner NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
+ALTER ROLE iam_identity_provisioner NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
+ALTER ROLE iam_identity_provisioner_login LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
 
--- Never silently reuse either role if it already participates in role inheritance.
--- Membership could add privileges beyond the narrow grants below or allow another
--- principal to SET ROLE to the SECURITY DEFINER owner. Fail closed for manual review.
+-- Neon administrators may be members of the narrowly scoped roles. The runtime
+-- roles must never be members of either provisioning role; only iam_owner may
+-- assume the definer owner, and only iam_owner/the dedicated login may assume
+-- the executor. The login may inherit only the executor role.
 DO $membership_guard$
 DECLARE
-  v_role_ids oid[];
+  v_owner_id oid;
+  v_executor_id oid;
+  v_login_id oid;
+  v_admin_id oid;
 BEGIN
-  SELECT array_agg(oid) INTO v_role_ids
-    FROM pg_roles
-   WHERE rolname IN ('iam_identity_provisioner_owner', 'iam_identity_provisioner');
+  SELECT oid INTO v_owner_id FROM pg_roles WHERE rolname = 'iam_identity_provisioner_owner';
+  SELECT oid INTO v_executor_id FROM pg_roles WHERE rolname = 'iam_identity_provisioner';
+  SELECT oid INTO v_login_id FROM pg_roles WHERE rolname = 'iam_identity_provisioner_login';
+  SELECT oid INTO v_admin_id FROM pg_roles WHERE rolname = 'iam_owner';
+
+  IF v_admin_id IS NULL THEN
+    RAISE EXCEPTION 'identity_provisioner_admin_role_missing';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_auth_members WHERE roleid = v_executor_id AND member = v_login_id
+  ) THEN
+    RAISE EXCEPTION 'identity_provisioner_login_membership_missing';
+  END IF;
 
   IF EXISTS (
     SELECT 1
       FROM pg_auth_members
-     WHERE roleid = ANY(v_role_ids)
-        OR member = ANY(v_role_ids)
+     WHERE member IN (v_owner_id, v_executor_id)
+        OR (roleid = v_owner_id AND member <> v_admin_id)
+        OR (roleid = v_executor_id AND member NOT IN (v_admin_id, v_login_id))
+        OR (member = v_login_id AND roleid <> v_executor_id)
+        OR roleid = v_login_id
   ) THEN
     RAISE EXCEPTION 'identity_provisioner_role_membership_requires_review';
   END IF;
