@@ -1,10 +1,6 @@
 name: Neon connection and security check
 
 on:
-  push:
-    branches:
-      - main
-      - fix/verify-runtime-role-attributes
   workflow_dispatch:
     inputs:
       target:
@@ -21,15 +17,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: neon-check-${{ inputs.target || 'development' }}
+  group: neon-check-${{ inputs.target }}
   cancel-in-progress: false
 
 jobs:
   verify-neon:
-    name: Verify Neon ${{ inputs.target || 'development' }}
+    name: Verify Neon ${{ inputs.target }}
     runs-on: ubuntu-latest
     environment:
-      name: neon-${{ inputs.target || 'development' }}
+      name: neon-${{ inputs.target }}
     timeout-minutes: 5
     env:
       NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
