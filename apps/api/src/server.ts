@@ -116,36 +116,38 @@ const server = createApiServer(
   async (event) => {
     await appendPreAuthSecurityEvent(pool, event);
   },
-  async (accessToken) => {
-    if (!identityProvisionerPool) {
-      throw new Error("missing_required_configuration:IDENTITY_PROVISIONER_DATABASE_URL");
+  {
+    provisionIdentity: async (accessToken) => {
+      if (!identityProvisionerPool) {
+        throw new Error("missing_required_configuration:IDENTITY_PROVISIONER_DATABASE_URL");
+      }
+      const identity = await verifyAccessToken(accessToken);
+      const expectedBranchId = requiredEnv("IAM_EXPECTED_NEON_BRANCH_ID");
+      const expectedProjectId = requiredEnv("IAM_EXPECTED_NEON_PROJECT_ID");
+      const roleResult = await identityProvisionerPool.query<{
+        current_user: string;
+        current_database: string;
+        branch_id: string | null;
+        project_id: string | null;
+      }>(
+        `SELECT current_user,
+                current_database(),
+                current_setting('neon.branch_id', true) AS branch_id,
+                current_setting('neon.project_id', true) AS project_id`
+      );
+      const row = roleResult.rows[0];
+      if (!row) throw new Error("identity_provisioner_database_identity_unavailable");
+      assertIdentityProvisionerDatabaseTarget({
+        roleName: row.current_user,
+        databaseName: row.current_database,
+        branchId: row.branch_id,
+        projectId: row.project_id
+      }, {
+        branchId: expectedBranchId,
+        projectId: expectedProjectId
+      });
+      await provisionExternalIdentity(identityProvisionerPool, identity);
     }
-    const identity = await verifyAccessToken(accessToken);
-    const expectedBranchId = requiredEnv("IAM_EXPECTED_NEON_BRANCH_ID");
-    const expectedProjectId = requiredEnv("IAM_EXPECTED_NEON_PROJECT_ID");
-    const roleResult = await identityProvisionerPool.query<{
-      current_user: string;
-      current_database: string;
-      branch_id: string | null;
-      project_id: string | null;
-    }>(
-      `SELECT current_user,
-              current_database(),
-              current_setting('neon.branch_id', true) AS branch_id,
-              current_setting('neon.project_id', true) AS project_id`
-    );
-    const row = roleResult.rows[0];
-    if (!row) throw new Error("identity_provisioner_database_identity_unavailable");
-    assertIdentityProvisionerDatabaseTarget({
-      roleName: row.current_user,
-      databaseName: row.current_database,
-      branchId: row.branch_id,
-      projectId: row.project_id
-    }, {
-      branchId: expectedBranchId,
-      projectId: expectedProjectId
-    });
-    await provisionExternalIdentity(identityProvisionerPool, identity);
   }
 );
 
