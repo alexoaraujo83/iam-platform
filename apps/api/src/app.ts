@@ -186,6 +186,22 @@ export function createApiHandler(
         return;
       }
 
+      if (process.env.IAM_IDENTITY_BOOTSTRAP_ENABLED !== "true") {
+        try {
+          await recordPreAuthSecurityEvent({
+            action: "identity.provisioning_failed",
+            outcome: "failure",
+            correlationId: randomUUID(),
+            metadata: { reason: "not_enabled" }
+          });
+        } catch {
+          sendJson(response, 503, { error: "security_audit_unavailable" });
+          return;
+        }
+        sendJson(response, 503, { error: "identity_provisioning_not_enabled" });
+        return;
+      }
+
       if (!options.provisionIdentity) {
         try {
           await recordPreAuthSecurityEvent({
