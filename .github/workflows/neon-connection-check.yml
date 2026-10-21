@@ -31,12 +31,15 @@ jobs:
       NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
       PGSSLMODE: require
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
       - name: Install PostgreSQL client
         run: |
           sudo apt-get update
           sudo apt-get install --yes postgresql-client
 
-      - name: Validate runtime identity, RLS and append-only grants
+      - name: Validate database URL is configured
         shell: bash
         run: |
           set -euo pipefail
@@ -45,72 +48,15 @@ jobs:
             exit 1
           fi
 
-          # Read-only checks only. No schema changes or application data are written.
-          result="$(psql "$NEON_DATABASE_URL" -X -v ON_ERROR_STOP=1 -At <<'SQL'
-          WITH checks AS (
-            SELECT
-              'runtime_identity_is_iam_app_runtime' AS check_name,
-              current_user = 'iam_app_runtime' AS passed
-            UNION ALL
-            SELECT
-              'runtime_role_has_no_superuser_or_bypassrls',
-              COALESCE((
-                SELECT NOT rolsuper AND NOT rolbypassrls
-                FROM pg_roles
-                WHERE rolname = current_user
-              ), false)
-            UNION ALL
-            SELECT
-              'rls_forced_' || expected.table_name,
-              COALESCE((
-                SELECT c.relrowsecurity AND c.relforcerowsecurity
-                FROM pg_class c
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = 'public'
-                  AND c.relname = expected.table_name
-                  AND c.relkind IN ('r', 'p')
-              ), false)
-            FROM (VALUES
-              ('applications'),
-              ('memberships'),
-              ('roles'),
-              ('audit_events'),
-              ('global_security_events')
-            ) AS expected(table_name)
-            UNION ALL
-            SELECT
-              'audit_events_append_only_grants',
-              has_table_privilege(current_user, 'public.audit_events', 'INSERT')
-              AND has_table_privilege(current_user, 'public.audit_events', 'SELECT')
-              AND NOT has_table_privilege(current_user, 'public.audit_events', 'UPDATE')
-              AND NOT has_table_privilege(current_user, 'public.audit_events', 'DELETE')
-              AND NOT has_table_privilege(current_user, 'public.audit_events', 'TRUNCATE')
-            UNION ALL
-            SELECT
-              'global_security_events_insert_only_grants',
-              has_table_privilege(current_user, 'public.global_security_events', 'INSERT')
-              AND NOT has_table_privilege(current_user, 'public.global_security_events', 'SELECT')
-              AND NOT has_table_privilege(current_user, 'public.global_security_events', 'UPDATE')
-              AND NOT has_table_privilege(current_user, 'public.global_security_events', 'DELETE')
-              AND NOT has_table_privilege(current_user, 'public.global_security_events', 'TRUNCATE')
-          )
-          SELECT check_name || ':' || CASE WHEN passed THEN 'PASS' ELSE 'FAIL' END
-          FROM checks
-          ORDER BY check_name;
-          SQL
-          )"
+      - name: Run shared read-only runtime security assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$NEON_DATABASE_URL" \
+            -X \
+            --set=ON_ERROR_STOP=1 \
+            --file=packages/database/migrations/verify_runtime_security.sql
 
-          printf '%s\n' "$result"
-          if grep -q ':FAIL$' <<< "$result"; then
-            echo "::error::A verificação de segurança do Neon falhou. Nenhuma alteração foi aplicada."
-            exit 1
-          fi
-
-          expected_checks=9
-          actual_checks="$(grep -c ':PASS$' <<< "$result" || true)"
-          if [[ "$actual_checks" -ne "$expected_checks" ]]; then
-            echo "::error::Quantidade inesperada de verificações concluídas: $actual_checks (esperado: $expected_checks)."
-            exit 1
-          fi
-
-          echo "Neon validado: identidade de runtime, RLS/FORCE RLS e privilégios de auditoria."
+      - name: Report audit result
+        if: success()
+        run: echo "Neon validado: identidade, privilégios efetivos, RLS/FORCE RLS e auditoria append-only."
