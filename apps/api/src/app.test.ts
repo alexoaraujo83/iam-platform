@@ -16,13 +16,14 @@ async function requestApi(
   headers?: Record<string, string>,
   checkReadiness: CheckReadiness = async () => true,
   recordSecurityEvent: RecordPreAuthSecurityEvent = async () => undefined,
-  provisionIdentity?: ProvisionIdentity
+  provisionIdentity?: ProvisionIdentity,
+  method = "GET"
 ): Promise<Response> {
   const server = createApiServer(resolver, checkReadiness, recordSecurityEvent, provisionIdentity);
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as AddressInfo;
-  return fetch(`http://127.0.0.1:${address.port}${path}`, headers ? { headers } : {});
+  return fetch(`http://127.0.0.1:${address.port}${path}`, { ...(headers ? { headers } : {}), method });
 }
 
 afterEach(async () => {
@@ -362,7 +363,8 @@ describe("IAM HTTP API", () => {
       { authorization: "Bearer verified-access-token" },
       async () => true,
       recordSecurityEvent,
-      provisionIdentity
+      provisionIdentity,
+      "POST"
     );
 
     expect(response.status).toBe(200);
@@ -402,7 +404,9 @@ describe("IAM HTTP API", () => {
       "/v1/identity/bootstrap",
       { authorization: "Bearer verified-access-token" },
       async () => true,
-      recordSecurityEvent
+      recordSecurityEvent,
+      undefined,
+      "POST"
     );
 
     expect(response.status).toBe(503);
