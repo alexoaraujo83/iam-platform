@@ -29,6 +29,7 @@ function getClaimsNamespace(value) {
       hostname.endsWith(".example.com") ||
       hostname.endsWith(".example.net") ||
       hostname.endsWith(".example.org") ||
+      hostname.endsWith(".example.edu") ||
       url.username ||
       url.password ||
       url.search ||
