@@ -89,8 +89,7 @@ describe("handleAuth0Callback", () => {
   it("bootstraps the verified access token only when the feature flag is enabled", async () => {
     vi.stubEnv("IAM_IDENTITY_BOOTSTRAP_ENABLED", "true");
     vi.stubEnv("IAM_API_BASE_URL", "https://iam-platform-ruddy-preview.vercel.app/");
-    vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "preview-bypass-secret");
-    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: "identity_provisioned" }), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await handleAuth0Callback(
@@ -113,8 +112,50 @@ describe("handleAuth0Callback", () => {
     expect(init.method).toBe("POST");
     const headers = new Headers(init.headers);
     expect(headers.get("authorization")).toBe("Bearer test-access-token");
-    expect(headers.get("x-vercel-protection-bypass")).toBe("preview-bypass-secret");
+    expect(headers.get("x-vercel-protection-bypass")).toBeNull();
     expect(await response.text()).not.toContain("test-access-token");
+  });
+
+
+  it("fails closed on a Vercel SSO redirect without following or bypassing protection", async () => {
+    vi.stubEnv("IAM_IDENTITY_BOOTSTRAP_ENABLED", "true");
+    vi.stubEnv("IAM_API_BASE_URL", "https://iam-platform-ruddy-preview.vercel.app");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, {
+      status: 302,
+      headers: { location: "https://vercel.com/sso-api" }
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const response = await handleAuth0Callback(
+      null,
+      { appBaseUrl: "https://iam-platform-web-preview.vercel.app" },
+      { tokenSet: { accessToken: "test-access-token" } }
+    );
+    const location = new URL(response.headers.get("location")!);
+
+    expect(location.searchParams.get("identity_bootstrap")).toBe("unavailable");
+    expect(fetchMock.mock.calls[0]?.[1]?.redirect).toBe("manual");
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("x-vercel-protection-bypass")).toBeNull();
+  });
+
+  it("does not accept an HTML response as a successful bootstrap", async () => {
+    vi.stubEnv("IAM_IDENTITY_BOOTSTRAP_ENABLED", "true");
+    vi.stubEnv("IAM_API_BASE_URL", "https://iam-platform-ruddy-preview.vercel.app");
+    const fetchMock = vi.fn().mockResolvedValue(new Response("<html>protected</html>", {
+      status: 200,
+      headers: { "content-type": "text/html" }
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const response = await handleAuth0Callback(
+      null,
+      { appBaseUrl: "https://iam-platform-web-preview.vercel.app" },
+      { tokenSet: { accessToken: "test-access-token" } }
+    );
+
+    expect(new URL(response.headers.get("location")!).searchParams.get("identity_bootstrap")).toBe("unavailable");
   });
 
   it("keeps login available and marks bootstrap unavailable when the API rejects", async () => {
