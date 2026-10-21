@@ -38,6 +38,14 @@ jobs:
       APP_BASE_URL: http://localhost:3000
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Scan full Git history for secrets
+        run: >-
+          docker run --rm
+          -v "$PWD:/repo"
+          zricethezav/gitleaks:v8.24.2
+          git /repo --redact --no-banner --exit-code=1
       - name: Scan checked-out source for secrets
         run: >-
           docker run --rm
