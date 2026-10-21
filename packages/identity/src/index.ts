@@ -75,7 +75,7 @@ function validateConfig(config: IdentityProviderConfig): void {
   }
 }
 
-function assertHttpsUrl(value: string, errorCode: string): URL {
+function assertHttpsUrl(value: string, errorCode: string): void {
   let url: URL;
   try {
     url = new URL(value);
@@ -86,7 +86,6 @@ function assertHttpsUrl(value: string, errorCode: string): URL {
   if (url.protocol !== "https:" || url.username || url.password) {
     throw new Error(errorCode);
   }
-  return url;
 }
 
 function toVerifiedIdentity(payload: JWTPayload, algorithm: string | undefined): VerifiedExternalIdentity {
