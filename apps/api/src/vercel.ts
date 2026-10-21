@@ -78,16 +78,40 @@ function initializeRuntime(): ResolveTenantContext {
       await appendPreAuthSecurityEvent(pool, event);
     };
 
-    resolveTenantContext = async (accessToken, tenantId, requiredPermission?: RequiredTenantPermission) =>
-      withAuthenticatedTenant(
+    resolveTenantContext = async (accessToken, tenantId, requiredPermission?: RequiredTenantPermission) => {
+      // Keep the verified claims request-local; the membership resolver intentionally
+      // persists only the stable (issuer, subject) identity key and tenant membership.
+      let verifiedIdentity: Awaited<ReturnType<typeof verifyAccessToken>> | undefined;
+      const verifyAndCaptureIdentity = async (token: string) => {
+        const identity = await verifyAccessToken(token);
+        verifiedIdentity = identity;
+        return identity;
+      };
+
+      return withAuthenticatedTenant(
         pool,
-        verifyAccessToken,
+        verifyAndCaptureIdentity,
         accessToken,
         tenantId,
         requiredPermission ?? { resource: "iam", action: "context.read" },
         (authorizationContext, permission) => authorize(authorizationContext, permission),
-        async (_client, membership) => membership
+        async (_client, membership) => {
+          // withAuthenticatedTenant invokes the verifier before this callback.
+          // Fail closed rather than emitting incomplete identity evidence if that contract changes.
+          if (!verifiedIdentity) throw new Error("verified_identity_unavailable");
+          return {
+            ...membership,
+            identityEvidence: {
+              issuer: verifiedIdentity.issuer,
+              subject: verifiedIdentity.subject,
+              audience: verifiedIdentity.audience,
+              algorithm: verifiedIdentity.algorithm,
+              expiresAt: verifiedIdentity.expiresAt
+            }
+          };
+        }
       );
+    };
     return resolveTenantContext;
   } catch (error) {
     initializationError = error;
