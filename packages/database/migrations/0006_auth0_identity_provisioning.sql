@@ -90,6 +90,11 @@ BEGIN
 END;
 $membership_guard$;
 
+-- Neon membership may grant ADMIN OPTION without SET ROLE. Permit only the
+-- privileged migration owner to assume the NOLOGIN definer role so ownership
+-- transfer can succeed; the runtime and provisioner login remain excluded.
+GRANT iam_identity_provisioner_owner TO iam_owner WITH SET TRUE;
+
 -- CREATE is temporary and required by PostgreSQL for function ownership transfer.
 GRANT USAGE, CREATE ON SCHEMA public TO iam_identity_provisioner_owner;
 GRANT SELECT, INSERT ON TABLE public.principals TO iam_identity_provisioner_owner;
