@@ -1,6 +1,10 @@
 name: Neon connection and security check
 
 on:
+  push:
+    branches:
+      - main
+      - fix/verify-runtime-role-attributes
   workflow_dispatch:
     inputs:
       target:
