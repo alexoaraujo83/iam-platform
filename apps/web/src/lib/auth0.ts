@@ -31,7 +31,7 @@ export const auth0 = new Auth0Client({
           }
 
           const accessToken = session?.tokenSet?.accessToken;
-          const apiBase = process.env.IAM_API_BASE_URL?.trim().replace(/\\/$/, "");
+          const apiBase = process.env.IAM_API_BASE_URL?.trim().replace(/\/$/, "");
           if (!accessToken || !apiBase) {
             console.warn(JSON.stringify({
               level: "warn",
