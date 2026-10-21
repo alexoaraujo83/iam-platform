@@ -37,7 +37,7 @@ CREATE ROLE iam_owner NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NO
 CREATE ROLE iam_identity_provisioner_owner NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
 CREATE ROLE iam_identity_provisioner NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
 CREATE ROLE iam_identity_provisioner_login LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
-GRANT iam_identity_provisioner_owner, iam_identity_provisioner TO iam_owner;
+GRANT iam_identity_provisioner_owner, iam_identity_provisioner, iam_identity_provisioner_login TO iam_owner;
 GRANT iam_identity_provisioner TO iam_identity_provisioner_login;
 SQL
 
@@ -124,7 +124,7 @@ BEGIN
             AND member_role.rolname NOT IN ('iam_owner','iam_identity_provisioner_login'))
         OR (member_role.rolname='iam_identity_provisioner_login'
             AND granted.rolname <> 'iam_identity_provisioner')
-        OR granted.rolname='iam_identity_provisioner_login'
+        OR (granted.rolname='iam_identity_provisioner_login' AND member_role.rolname <> 'iam_owner')
   ) THEN
     RAISE EXCEPTION 'unexpected_provisioning_role_membership';
   END IF;
