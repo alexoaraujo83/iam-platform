@@ -41,11 +41,21 @@ jobs:
         with:
           fetch-depth: 0
       - name: Scan full Git history for secrets
-        run: >-
-          docker run --rm
-          -v "$PWD:/repo"
-          zricethezav/gitleaks:v8.24.2
-          git /repo --redact --no-banner --exit-code=1
+        shell: bash
+        run: |
+          set +e
+          docker run --rm \
+            -v "$PWD:/repo" \
+            zricethezav/gitleaks:v8.24.2 \
+            git /repo --redact --no-banner --report-format json \
+            --report-path /repo/.gitleaks-history-report.json --exit-code=1
+          scan_status=$?
+          if [[ -f .gitleaks-history-report.json ]]; then
+            echo "Gitleaks finding metadata (secret values and matched text are excluded):"
+            jq 'map({RuleID, File, Commit, StartLine, EndLine, Description, Fingerprint})' .gitleaks-history-report.json
+            rm -f .gitleaks-history-report.json
+          fi
+          exit "$scan_status"
       - name: Scan checked-out source for secrets
         run: >-
           docker run --rm
