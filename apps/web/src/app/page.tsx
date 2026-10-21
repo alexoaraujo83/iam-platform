@@ -41,15 +41,35 @@ function SessionActionsFallback() {
   );
 }
 
-export default async function Home({
-  searchParams,
-}: {
-  searchParams: Promise<{ identity_bootstrap?: string | string[]; auth_callback?: string | string[] }>;
-}) {
+type HomeSearchParams = Promise<{
+  identity_bootstrap?: string | string[];
+  auth_callback?: string | string[];
+}>;
+
+async function IdentityBootstrapStatus({ searchParams }: { searchParams: HomeSearchParams }) {
   const params = await searchParams;
   const bootstrapUnavailable = params.identity_bootstrap === "unavailable";
   const callbackFailed = params.auth_callback === "failed";
 
+  if (!bootstrapUnavailable && !callbackFailed) return null;
+
+  return (
+    <>
+      {bootstrapUnavailable && (
+        <p className={styles.note} role="status">
+          Sign-in succeeded, but identity synchronization is unavailable. No tenant access was granted; retry later or contact an administrator.
+        </p>
+      )}
+      {callbackFailed && (
+        <p className={styles.note} role="alert">
+          Authentication could not be completed. Please try signing in again.
+        </p>
+      )}
+    </>
+  );
+}
+
+export default function Home({ searchParams }: { searchParams: HomeSearchParams }) {
   return (
     <main className={styles.page}>
       <section className={styles.panel} aria-labelledby="page-title">
@@ -58,16 +78,9 @@ export default async function Home({
         <p className={styles.description}>
           Centralize identity, organization membership, and access policy management.
         </p>
-        {bootstrapUnavailable && (
-          <p className={styles.note} role="status">
-            Sign-in succeeded, but identity synchronization is unavailable. No tenant access was granted; retry later or contact an administrator.
-          </p>
-        )}
-        {callbackFailed && (
-          <p className={styles.note} role="alert">
-            Authentication could not be completed. Please try signing in again.
-          </p>
-        )}
+        <Suspense fallback={null}>
+          <IdentityBootstrapStatus searchParams={searchParams} />
+        </Suspense>
 
         <Suspense fallback={<SessionActionsFallback />}>
           <SessionActions />
