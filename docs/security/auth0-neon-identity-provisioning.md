@@ -51,4 +51,8 @@ A função deve validar entradas não vazias, fazer a criação de principal/ide
 
 ### Verificação do alvo da pool de provisionamento
 
+A rota de bootstrap também exige `IAM_IDENTITY_BOOTSTRAP_ENABLED=true` no próprio ambiente da API; ausência ou qualquer valor diferente de `true` retorna HTTP 503 e registra um evento sanitizado `identity.provisioning_failed/not_enabled`. A flag da Web não substitui essa verificação server-side. O padrão em todos os ambientes é `false`.
+
+
+
 Antes de criar a identidade, a pool dedicada confirma a role `iam_identity_provisioner_login`, o database `iam_platform`, o `neon.branch_id` e o `neon.project_id` da conexão real. Os IDs precisam corresponder a `IAM_EXPECTED_NEON_BRANCH_ID` e `IAM_EXPECTED_NEON_PROJECT_ID`; ausência ou divergência falha fechado e não cria principal/identidade. Essas variáveis são não secretas e são configuradas por ambiente no projeto Vercel da API.
