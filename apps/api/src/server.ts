@@ -96,24 +96,26 @@ const server = createApiServer(
   async (event) => {
     await appendPreAuthSecurityEvent(pool, event);
   },
-  async () => {
-    const result = await pool.query<{
-      role_name: string;
-      database_name: string;
-      branch_id: string | null;
-      project_id: string | null;
-    }>(`SELECT current_user AS role_name,
-              current_database() AS database_name,
-              current_setting('neon.branch_id', true) AS branch_id,
-              current_setting('neon.project_id', true) AS project_id`);
-    const row = result.rows[0];
-    if (!row) throw new Error("database_runtime_identity_unavailable");
-    return {
-      roleName: row.role_name,
-      databaseName: row.database_name,
-      branchId: row.branch_id,
-      projectId: row.project_id
-    };
+  {
+    getDatabaseRuntimeIdentity: async () => {
+      const result = await pool.query<{
+        role_name: string;
+        database_name: string;
+        branch_id: string | null;
+        project_id: string | null;
+      }>(`SELECT current_user AS role_name,
+                current_database() AS database_name,
+                current_setting('neon.branch_id', true) AS branch_id,
+                current_setting('neon.project_id', true) AS project_id`);
+      const row = result.rows[0];
+      if (!row) throw new Error("database_runtime_identity_unavailable");
+      return {
+        roleName: row.role_name,
+        databaseName: row.database_name,
+        branchId: row.branch_id,
+        projectId: row.project_id
+      };
+    }
   }
 );
 
