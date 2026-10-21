@@ -41,6 +41,16 @@ export interface DiagnosticCheck {
   readonly correlationId: string;
 }
 
+export interface DatabaseRuntimeIdentityEvidence {
+  readonly roleName: string | null;
+  readonly databaseName: string | null;
+  readonly branchId: string | null;
+  readonly projectId: string | null;
+  readonly expectedBranchId: string | null;
+  readonly expectedProjectId: string | null;
+  readonly verified: boolean;
+}
+
 export interface RuntimeSnapshot {
   readonly id: UUID;
   readonly environment: ControlCenterEnvironment;
@@ -48,6 +58,8 @@ export interface RuntimeSnapshot {
   readonly commitSha: string | null;
   readonly deploymentId: string | null;
   readonly deploymentUrl: string | null;
+  /** Live values read from the same PostgreSQL pool used by the API. */
+  readonly databaseIdentity: DatabaseRuntimeIdentityEvidence;
   readonly checks: readonly DiagnosticCheck[];
   readonly overallStatus: EvidenceStatus;
   readonly correlationId: string;
