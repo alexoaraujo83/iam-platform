@@ -42,20 +42,6 @@ type DiagnosticResult = {
   }[];
 };
 
-const previousAuthorizationEvidence = {
-  outcome: "authorized",
-  apiHttpStatus: 200,
-  tenantId: "4a2f0b2e-37c1-4d0a-a211-8b6d7f2e9001",
-  principalId: "4a2f0b2e-37c1-4d0a-a211-8b6d7f2e9002",
-  membershipId: "4a2f0b2e-37c1-4d0a-a211-8b6d7f2e9004",
-  permission: "iam.control_center.read",
-  permissionStatus: "Concedida",
-  executedAtUtc: "Não registrado na evidência histórica",
-  environment: "Não registrado",
-  webCommit: "Não registrado",
-  apiVersion: "Não registrada",
-};
-
 const statusLabels: Record<DiagnosticResult["checks"][number]["status"], string> = {
   pass: "APROVADO",
   fail: "FALHOU",
@@ -111,25 +97,6 @@ export default function AuthorizationProbe() {
   return (
     <section className={styles.probe} aria-labelledby="probe-title">
       <h2 id="probe-title">Diagnóstico de autorização e segurança</h2>
-
-      <section aria-labelledby="previous-auth-title">
-        <h3 id="previous-auth-title">Evidência histórica — autorização concedida</h3>
-        <p className={styles.note}>
-          Registro histórico preservado para comparação. Não representa uma nova execução e não deve ser usado como prova do estado atual.
-        </p>
-        <ul className={styles.permissionList}>
-          <li><strong>Resultado:</strong> {previousAuthorizationEvidence.outcome}</li>
-          <li><strong>Data/hora UTC:</strong> {previousAuthorizationEvidence.executedAtUtc}</li>
-          <li><strong>Ambiente:</strong> {previousAuthorizationEvidence.environment}</li>
-          <li><strong>Commit web:</strong> <code>{previousAuthorizationEvidence.webCommit}</code></li>
-          <li><strong>Versão/commit da API:</strong> {previousAuthorizationEvidence.apiVersion}</li>
-          <li><strong>API HTTP status:</strong> {previousAuthorizationEvidence.apiHttpStatus}</li>
-          <li><strong>Tenant ID:</strong> <code>{previousAuthorizationEvidence.tenantId}</code></li>
-          <li><strong>Principal ID:</strong> <code>{previousAuthorizationEvidence.principalId}</code></li>
-          <li><strong>Membership ID:</strong> <code>{previousAuthorizationEvidence.membershipId}</code></li>
-          <li><strong>{previousAuthorizationEvidence.permission}:</strong> {previousAuthorizationEvidence.permissionStatus}</li>
-        </ul>
-      </section>
 
       <section aria-labelledby="current-tests-title">
         <h3 id="current-tests-title">Bateria automatizada — execução atual</h3>
