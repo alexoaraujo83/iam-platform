@@ -14,6 +14,10 @@ BEGIN
 END
 $roles$;
 
+-- Enforce role attributes even if a same-named role already existed.
+ALTER ROLE iam_identity_provisioner_owner NOLOGIN BYPASSRLS NOCREATEROLE NOCREATEDB;
+ALTER ROLE iam_identity_provisioner NOLOGIN NOBYPASSRLS NOCREATEROLE NOCREATEDB;
+
 -- CREATE is temporary and required by PostgreSQL for function ownership transfer.
 GRANT USAGE, CREATE ON SCHEMA public TO iam_identity_provisioner_owner;
 GRANT SELECT, INSERT ON TABLE public.principals TO iam_identity_provisioner_owner;
