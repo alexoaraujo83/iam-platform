@@ -19,7 +19,7 @@ async function requestApi(
   provisionIdentity?: ProvisionIdentity,
   method = "GET"
 ): Promise<Response> {
-  const server = createApiServer(resolver, checkReadiness, recordSecurityEvent, provisionIdentity);
+  const server = createApiServer(resolver, checkReadiness, recordSecurityEvent, { provisionIdentity });
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as AddressInfo;
