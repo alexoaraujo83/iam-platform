@@ -341,6 +341,18 @@ describe("IAM HTTP API", () => {
     expect(await response.json()).toEqual({ error: "active_membership_required" });
   });
 
+  it("denies control-center access when the resolver returns context without the required permission", async () => {
+    const resolver = vi.fn<ResolveTenantContext>().mockResolvedValue(context);
+    const response = await requestApi(
+      resolver,
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center",
+      { authorization: "Bearer valid-token" }
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "permission_denied" });
+  });
+
   it("denies control-center access when the required permission is missing", async () => {
     const resolver = vi.fn<ResolveTenantContext>().mockRejectedValue(new Error("authorization_denied"));
     const response = await requestApi(
