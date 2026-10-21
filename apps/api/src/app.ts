@@ -189,7 +189,8 @@ export function createApiHandler(
       const context = controlCenterMatch
         ? await resolveTenantContext(accessToken, tenantId, requiredPermission)
         : await resolveTenantContext(accessToken, tenantId);
-      if (!context) {
+      if (!context || context.tenantId !== tenantId) {
+        // Defense in depth: never return a context for a different tenant than requested.
         sendJson(response, 403, { error: "active_membership_required" });
         return;
       }
