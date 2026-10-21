@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 import { auth0 } from "../lib/auth0";
 import styles from "./page.module.css";
+import IdentityBootstrapStatus from "./identity-bootstrap-status";
 
 async function SessionActions() {
   // Session cookies are request-specific; keep this access behind Suspense.
@@ -41,35 +42,7 @@ function SessionActionsFallback() {
   );
 }
 
-type HomeSearchParams = Promise<{
-  identity_bootstrap?: string | string[];
-  auth_callback?: string | string[];
-}>;
-
-async function IdentityBootstrapStatus({ searchParams }: { searchParams: HomeSearchParams }) {
-  const params = await searchParams;
-  const bootstrapUnavailable = params.identity_bootstrap === "unavailable";
-  const callbackFailed = params.auth_callback === "failed";
-
-  if (!bootstrapUnavailable && !callbackFailed) return null;
-
-  return (
-    <>
-      {bootstrapUnavailable && (
-        <p className={styles.note} role="status">
-          Sign-in succeeded, but identity synchronization is unavailable. No tenant access was granted; retry later or contact an administrator.
-        </p>
-      )}
-      {callbackFailed && (
-        <p className={styles.note} role="alert">
-          Authentication could not be completed. Please try signing in again.
-        </p>
-      )}
-    </>
-  );
-}
-
-export default function Home({ searchParams }: { searchParams: HomeSearchParams }) {
+export default function Home() {
   return (
     <main className={styles.page}>
       <section className={styles.panel} aria-labelledby="page-title">
@@ -79,7 +52,7 @@ export default function Home({ searchParams }: { searchParams: HomeSearchParams 
           Centralize identity, organization membership, and access policy management.
         </p>
         <Suspense fallback={null}>
-          <IdentityBootstrapStatus searchParams={searchParams} />
+          <IdentityBootstrapStatus />
         </Suspense>
 
         <Suspense fallback={<SessionActionsFallback />}>
