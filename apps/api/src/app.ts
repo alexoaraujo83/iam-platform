@@ -28,8 +28,19 @@ export type ResolveTenantContext = (
   requiredPermission?: RequiredTenantPermission
 ) => Promise<TenantContextResponse | null>;
 export type CheckReadiness = () => Promise<boolean>;
+export interface DatabaseRuntimeIdentity {
+  readonly roleName: string | null;
+  readonly databaseName: string | null;
+  readonly branchId: string | null;
+  readonly projectId: string | null;
+}
+export type GetDatabaseRuntimeIdentity = () => Promise<DatabaseRuntimeIdentity>;
 export type RecordPreAuthSecurityEvent = (event: PreAuthSecurityEvent) => Promise<void>;
 export type ProvisionIdentity = (accessToken: string) => Promise<void>;
+export interface ApiHandlerOptions {
+  readonly getDatabaseRuntimeIdentity?: GetDatabaseRuntimeIdentity;
+  readonly provisionIdentity?: ProvisionIdentity;
+}
 export type ApiRequestHandler = (request: IncomingMessage, response: ServerResponse) => void;
 
 const CONTEXT_PERMISSION: RequiredTenantPermission = { resource: "iam", action: "context.read" };
@@ -104,7 +115,7 @@ export function createApiHandler(
   resolveTenantContext: ResolveTenantContext,
   checkReadiness: CheckReadiness,
   recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent,
-  provisionIdentity?: ProvisionIdentity
+  options: ApiHandlerOptions = {}
 ): ApiRequestHandler {
   // Bound unauthenticated write amplification per socket peer. Do not trust
   // X-Forwarded-For here; it is only safe behind a separately trusted proxy.
@@ -175,7 +186,7 @@ export function createApiHandler(
         return;
       }
 
-      if (!provisionIdentity) {
+      if (!options.provisionIdentity) {
         try {
           await recordPreAuthSecurityEvent({
             action: "identity.provisioning_failed",
@@ -192,7 +203,7 @@ export function createApiHandler(
       }
 
       try {
-        await provisionIdentity(accessToken);
+        await options.provisionIdentity(accessToken);
         sendJson(response, 200, { status: "identity_provisioned" });
       } catch (error) {
         const errorCode = error instanceof Error ? error.message.split(":", 1)[0] : undefined;
@@ -333,7 +344,7 @@ export function createApiServer(
   resolveTenantContext: ResolveTenantContext,
   checkReadiness: CheckReadiness,
   recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent,
-  provisionIdentity?: ProvisionIdentity
+  options: ApiHandlerOptions = {}
 ): Server {
-  return createServer(createApiHandler(resolveTenantContext, checkReadiness, recordPreAuthSecurityEvent, provisionIdentity));
+  return createServer(createApiHandler(resolveTenantContext, checkReadiness, recordPreAuthSecurityEvent, options));
 }
