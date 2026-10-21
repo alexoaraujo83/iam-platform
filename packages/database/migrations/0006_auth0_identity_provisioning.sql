@@ -97,6 +97,7 @@ $membership_guard$;
 GRANT USAGE, CREATE ON SCHEMA public TO iam_identity_provisioner_owner;
 GRANT SELECT, INSERT ON TABLE public.principals TO iam_identity_provisioner_owner;
 GRANT SELECT, INSERT ON TABLE public.external_identities TO iam_identity_provisioner_owner;
+GRANT INSERT ON TABLE public.global_security_events TO iam_identity_provisioner_owner;
 
 CREATE OR REPLACE FUNCTION public.provision_external_identity(
   p_issuer text,
@@ -136,6 +137,18 @@ BEGIN
 
   INSERT INTO public.external_identities (principal_id, issuer, subject)
   VALUES (v_principal_id, p_issuer, p_subject);
+
+  -- Audit the creation atomically without storing issuer, subject, tokens, or claims.
+  -- If the append-only security log is unavailable, roll back the identity too.
+  INSERT INTO public.global_security_events
+    (id, action, outcome, correlation_id, metadata)
+  VALUES (
+    gen_random_uuid(),
+    'identity.provisioned',
+    'success',
+    gen_random_uuid()::text,
+    jsonb_build_object('provider', 'oidc', 'result', 'created')
+  );
 
   RETURN v_principal_id;
 END;
