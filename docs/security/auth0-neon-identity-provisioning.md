@@ -48,3 +48,7 @@ A função deve validar entradas não vazias, fazer a criação de principal/ide
 - Provisionar `iam_identity_provisioner_login` com credencial gerenciada fora do repositório, verificar atributos/memberships efetivos no PostgreSQL e confirmar que o deployment usa a branch Neon Preview. O endpoint de bootstrap está no código, mas a chamada pós-login continua pendente na PR #19; manter a flag desativada até o handler integrado, a API e o banco estarem implantados e validados.
 - Executar CI no SHA exato, testes de concorrência/RLS e revisão independente do diff.
 - Manter PR em Draft até as evidências acima estarem completas.
+
+### Verificação do alvo da pool de provisionamento
+
+Antes de criar a identidade, a pool dedicada confirma a role `iam_identity_provisioner_login`, o database `iam_platform`, o `neon.branch_id` e o `neon.project_id` da conexão real. Os IDs precisam corresponder a `IAM_EXPECTED_NEON_BRANCH_ID` e `IAM_EXPECTED_NEON_PROJECT_ID`; ausência ou divergência falha fechado e não cria principal/identidade. Essas variáveis são não secretas e são configuradas por ambiente no projeto Vercel da API.
