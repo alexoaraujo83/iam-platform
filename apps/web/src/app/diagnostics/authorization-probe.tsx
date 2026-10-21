@@ -29,7 +29,7 @@ type DiagnosticResult = {
     membership: { status: string; membershipId: string };
     permissions: { status: string; required: string; effective: string[] };
   } | null;
-  ciNegativeCoverage?: { id: string; scenario: string; status: string; evidence: string; executionScope: string }[];
+  ciNegativeCoverage?: { id: string; scenario: string; status: string; expectedOutcome: string; observedOutcome: string; httpStatus: number | null; result: string; evidence: string; executionScope: string }[];
   checks: {
     id: string;
     label: string;
@@ -204,7 +204,13 @@ export default function AuthorizationProbe() {
               {result.ciNegativeCoverage?.map((coverage) => (
                 <li key={coverage.id}>
                   <strong>COBERTURA CI — não é teste live desta execução</strong> — {coverage.scenario}
-                  <div className={styles.note}>{coverage.evidence}<br />{coverage.executionScope}</div>
+                  <div className={styles.note}>
+                    <strong>Resultado:</strong> {coverage.result}<br />
+                    <strong>Esperado:</strong> {coverage.expectedOutcome}<br />
+                    <strong>Observado:</strong> {coverage.observedOutcome}<br />
+                    <strong>Status HTTP:</strong> {coverage.httpStatus === null ? "N/A — teste unitário do verificador" : coverage.httpStatus}<br />
+                    {coverage.evidence}<br />{coverage.executionScope}
+                  </div>
                 </li>
               ))}
             </ul>
