@@ -59,7 +59,6 @@ export async function POST(request: NextRequest) {
       principalId: string;
       membershipId: string;
       permissionGranted: boolean;
-      membershipActive: boolean;
       permissions: string[];
     } | null;
   } = { current: null };
@@ -114,7 +113,6 @@ export async function POST(request: NextRequest) {
             principalId: payload.principalId,
             membershipId: payload.membershipId,
             permissionGranted,
-            membershipActive: typeof payload.membershipId === "string" && payload.membershipId.length > 0,
             permissions: permissions
               .filter((permission) => typeof permission?.resource === "string" && typeof permission?.action === "string")
               .map((permission) => `${permission.resource}.${permission.action}`),
@@ -209,7 +207,7 @@ export async function POST(request: NextRequest) {
       audience: { status: "accepted_by_api", value: confirmedEvidence.audience },
       algorithm: { status: "accepted_by_api", value: confirmedEvidence.algorithm, reason: "Algoritmo informado pela identidade verificada; a allowlist é aplicada pelo verificador OIDC no servidor." },
       expiration: { status: confirmedEvidence.expiresAt * 1000 > Date.now() ? "valid_at_execution" : "expired", expiresAtUtc: new Date(confirmedEvidence.expiresAt * 1000).toISOString() },
-      membership: { status: confirmedEvidence.membershipActive ? "active" : "unconfirmed", membershipId: confirmedEvidence.membershipId },
+      membership: { status: "membership_id_returned_not_independently_verified", membershipId: confirmedEvidence.membershipId, reason: "A resposta contém um membershipId, mas este relatório não recebeu um campo explícito de estado da associação; não infere estado ativo apenas pela presença do identificador." },
       permissions: { status: confirmedEvidence.permissionGranted ? "granted" : "missing", required: "iam.control_center.read", effective: confirmedEvidence.permissions },
     } : null,
     ciNegativeCoverage: [
