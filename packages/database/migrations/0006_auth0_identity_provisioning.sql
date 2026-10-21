@@ -11,7 +11,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'iam_identity_provisioner') THEN
     CREATE ROLE iam_identity_provisioner NOLOGIN NOBYPASSRLS;
   END IF;
-END
+END;
 $roles$;
 
 -- Enforce role attributes even if a same-named role already existed.
@@ -37,7 +37,7 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'identity_provisioner_role_membership_requires_review';
   END IF;
-END
+END;
 $membership_guard$;
 
 -- CREATE is temporary and required by PostgreSQL for function ownership transfer.
@@ -85,7 +85,7 @@ BEGIN
   VALUES (v_principal_id, p_issuer, p_subject);
 
   RETURN v_principal_id;
-END
+END;
 $function$;
 
 ALTER FUNCTION public.provision_external_identity(text, text)
