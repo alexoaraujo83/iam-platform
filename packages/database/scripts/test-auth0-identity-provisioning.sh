@@ -22,6 +22,13 @@ psql_cmd=(psql "$test_database_url" -X -v ON_ERROR_STOP=1)
 
 "${psql_cmd[@]}" -f "$root/packages/database/migrations/0001_identity_tenancy.sql"
 "${psql_cmd[@]}" -f "$root/packages/database/migrations/0002_durable_audit_controls.sql"
+# Apply the full current schema before the proposed provisioning migration.
+"${psql_cmd[@]}" <<'SQL'
+CREATE ROLE iam_app_runtime NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
+SQL
+"${psql_cmd[@]}" -f "$root/packages/database/migrations/0003_control_center_read_permission.sql"
+"${psql_cmd[@]}" -f "$root/packages/database/migrations/0004_pre_auth_security_events.sql"
+"${psql_cmd[@]}" -f "$root/packages/database/migrations/0005_harden_runtime_database_roles.sql"
 
 # Model Neon’s admin membership plus a dedicated low-privilege LOGIN role.
 # The application connects as the LOGIN role, which inherits only EXECUTE from the executor.
@@ -30,7 +37,6 @@ CREATE ROLE iam_owner NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NO
 CREATE ROLE iam_identity_provisioner_owner NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
 CREATE ROLE iam_identity_provisioner NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
 CREATE ROLE iam_identity_provisioner_login LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
-CREATE ROLE iam_app_runtime NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
 GRANT iam_identity_provisioner_owner, iam_identity_provisioner TO iam_owner;
 GRANT iam_identity_provisioner TO iam_identity_provisioner_login;
 SQL
@@ -125,6 +131,14 @@ BEGIN
   IF (SELECT count(*) FROM public.principals) <> 3
      OR (SELECT count(*) FROM public.external_identities) <> 3 THEN
     RAISE EXCEPTION 'unexpected_identity_row_counts';
+  END IF;
+  IF (SELECT count(*) FROM public.global_security_events WHERE action='identity.provisioned') <> 3 THEN
+    RAISE EXCEPTION 'identity_provisioning_audit_count_mismatch';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.global_security_events
+      WHERE action='identity.provisioned'
+        AND (metadata ? 'issuer' OR metadata ? 'subject' OR metadata ? 'token' OR metadata ? 'claims')) THEN
+    RAISE EXCEPTION 'identity_provisioning_audit_contains_sensitive_identity_data';
   END IF;
   IF EXISTS (SELECT 1 FROM public.tenants)
      OR EXISTS (SELECT 1 FROM public.memberships)
