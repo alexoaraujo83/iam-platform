@@ -17,7 +17,6 @@ type DiagnosticResult = {
     principalId: string;
     membershipId: string;
     permissionGranted: boolean;
-    membershipActive: boolean;
     permissions: string[];
   } | null;
   validationEvidence?: {
@@ -26,7 +25,7 @@ type DiagnosticResult = {
     audience: { status: string; value: string | string[] };
     algorithm: { status: string; value: string; reason: string };
     expiration: { status: string; expiresAtUtc: string };
-    membership: { status: string; membershipId: string };
+    membership: { status: string; membershipId: string; reason: string };
     permissions: { status: string; required: string; effective: string[] };
   } | null;
   ciNegativeCoverage?: { id: string; scenario: string; status: string; expectedOutcome: string; observedOutcome: string; httpStatus: number | null; result: string; evidence: string; executionScope: string }[];
@@ -170,7 +169,7 @@ export default function AuthorizationProbe() {
                     <strong>Tenant ID:</strong> <code>{result.authorizationEvidence.tenantId}</code><br />
                     <strong>Principal ID:</strong> <code>{result.authorizationEvidence.principalId}</code><br />
                     <strong>Membership ID:</strong> <code>{result.authorizationEvidence.membershipId}</code><br />
-                    <strong>Membership ativa:</strong> {result.authorizationEvidence.membershipActive ? "Confirmada pela resposta de contexto da API" : "Não confirmada"}<br />
+                    <strong>Estado da associação:</strong> Não informado explicitamente; o identificador foi retornado pela API.<br />
                     <strong>Permissões efetivas:</strong> {result.authorizationEvidence.permissions.length ? result.authorizationEvidence.permissions.join(", ") : "Nenhuma retornada"}
                   </div>
                 </li>
@@ -184,7 +183,7 @@ export default function AuthorizationProbe() {
                     <strong>Audience:</strong> {result.validationEvidence.audience.status} — <code>{Array.isArray(result.validationEvidence.audience.value) ? result.validationEvidence.audience.value.join(", ") : result.validationEvidence.audience.value}</code><br />
                     <strong>Algoritmo:</strong> {result.validationEvidence.algorithm.status} — <code>{result.validationEvidence.algorithm.value}</code> — {result.validationEvidence.algorithm.reason}<br />
                     <strong>Expiração:</strong> {result.validationEvidence.expiration.status} — {result.validationEvidence.expiration.expiresAtUtc}<br />
-                    <strong>Membership:</strong> {result.validationEvidence.membership.status} — <code>{result.validationEvidence.membership.membershipId}</code><br />
+                    <strong>Membership:</strong> {result.validationEvidence.membership.status} — <code>{result.validationEvidence.membership.membershipId}</code><br />{result.validationEvidence.membership.reason}<br />
                     <strong>Permissão exigida:</strong> {result.validationEvidence.permissions.status} — <code>{result.validationEvidence.permissions.required}</code><br />
                     <strong>Permissões efetivas consultadas:</strong> {result.validationEvidence.permissions.effective.join(", ") || "Nenhuma retornada"}
                   </div>
