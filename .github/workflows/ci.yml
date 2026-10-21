@@ -41,6 +41,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Scan full Git history for secrets
+        # Exact historical fingerprints are documented in docs/security/gitleaks-history-allowlist.md.
         shell: bash
         run: |
           set +e
