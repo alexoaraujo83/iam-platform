@@ -182,6 +182,10 @@ export async function POST(request: NextRequest) {
     result: check.status === "pass" ? "approved" : check.status === "fail" ? "rejected" : "inconclusive",
     reason: check.detail ?? (check.status === "pass" ? "Comportamento observado corresponde ao esperado." : "Não foi possível confirmar o comportamento esperado."),
   }));
+  // TypeScript cannot track assignments made inside the async probe closure.
+  // Snapshot the value after all probes have completed so the report retains its declared type.
+  type AuthorizationEvidence = NonNullable<typeof authorizationEvidence>;
+  const confirmedEvidence = authorizationEvidence as AuthorizationEvidence | null;
   const failed = checks.some((check) => check.status === "fail");
   const blocked = checks.some((check) => check.status === "blocked");
   const notConfigured = checks.some((check) => check.status === "not_configured");
@@ -196,14 +200,14 @@ export async function POST(request: NextRequest) {
       apiVersion,
     },
     authorizationEvidence,
-    validationEvidence: authorizationEvidence ? {
+    validationEvidence: confirmedEvidence ? {
       signature: { status: "validated", reason: "A API retornou identidade somente após a verificação criptográfica do JWT pelo verificador OIDC." },
-      issuer: { status: "validated", value: authorizationEvidence.issuer },
-      audience: { status: "validated", value: authorizationEvidence.audience },
-      algorithm: { status: "validated", value: authorizationEvidence.algorithm, reason: "O verificador restringe algoritmos assimétricos à allowlist configurada." },
-      expiration: { status: authorizationEvidence.expiresAt * 1000 > Date.now() ? "valid_at_execution" : "expired", expiresAtUtc: new Date(authorizationEvidence.expiresAt * 1000).toISOString() },
-      membership: { status: authorizationEvidence.membershipActive ? "active" : "unconfirmed", membershipId: authorizationEvidence.membershipId },
-      permissions: { status: authorizationEvidence.permissionGranted ? "granted" : "missing", required: "iam.control_center.read", effective: authorizationEvidence.permissions },
+      issuer: { status: "validated", value: confirmedEvidence.issuer },
+      audience: { status: "validated", value: confirmedEvidence.audience },
+      algorithm: { status: "validated", value: confirmedEvidence.algorithm, reason: "O verificador restringe algoritmos assimétricos à allowlist configurada." },
+      expiration: { status: confirmedEvidence.expiresAt * 1000 > Date.now() ? "valid_at_execution" : "expired", expiresAtUtc: new Date(authorizationEvidence.expiresAt * 1000).toISOString() },
+      membership: { status: confirmedEvidence.membershipActive ? "active" : "unconfirmed", membershipId: confirmedEvidence.membershipId },
+      permissions: { status: confirmedEvidence.permissionGranted ? "granted" : "missing", required: "iam.control_center.read", effective: confirmedEvidence.permissions },
     } : null,
     ciNegativeCoverage: [
       { id: "expired-token", scenario: "JWT expirado", status: "covered_by_unit_test", expectedOutcome: "Rejeição pelo verificador OIDC", observedOutcome: "O teste exige que o verificador lance erro", httpStatus: null, result: "asserted_in_unit_test", evidence: "packages/identity/src/index.test.ts — rejects expired tokens", executionScope: "Teste unitário com chaves efêmeras; HTTP N/A e não é uma chamada negativa ao tenant real nesta execução." },
