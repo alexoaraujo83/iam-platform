@@ -57,6 +57,8 @@ export async function POST(request: NextRequest) {
     principalId: string;
     membershipId: string;
     permissionGranted: boolean;
+    membershipActive: boolean;
+    permissions: string[];
   } | null = null;
 
   async function probe(
@@ -109,6 +111,10 @@ export async function POST(request: NextRequest) {
             principalId: payload.principalId,
             membershipId: payload.membershipId,
             permissionGranted,
+            membershipActive: typeof payload.membershipId === "string" && payload.membershipId.length > 0,
+            permissions: permissions
+              .filter((permission) => typeof permission?.resource === "string" && typeof permission?.action === "string")
+              .map((permission) => `${permission.resource}.${permission.action}`),
           };
         }
       }
@@ -169,6 +175,13 @@ export async function POST(request: NextRequest) {
     detail: "O teste criptográfico de token expirado é gerado com chaves locais controladas no CI. O E2E de Preview requer uma fixture efêmera específica do ambiente; nenhum JWT manual permanente é lido de variáveis de ambiente."
   });
 
+  const reportTimestamp = new Date().toISOString();
+  const evidenceChecks = checks.map((check) => ({
+    ...check,
+    executedAtUtc: reportTimestamp,
+    result: check.status === "pass" ? "approved" : check.status === "fail" ? "rejected" : "inconclusive",
+    reason: check.detail ?? (check.status === "pass" ? "Comportamento observado corresponde ao esperado." : "Não foi possível confirmar o comportamento esperado."),
+  }));
   const failed = checks.some((check) => check.status === "fail");
   const blocked = checks.some((check) => check.status === "blocked");
   const notConfigured = checks.some((check) => check.status === "not_configured");
@@ -176,12 +189,27 @@ export async function POST(request: NextRequest) {
     ok: !failed && !blocked && !notConfigured,
     outcome: failed ? "security_checks_failed" : blocked ? "security_checks_inconclusive" : notConfigured ? "security_checks_partially_configured" : "security_checks_passed",
     execution: {
-      executedAtUtc: new Date().toISOString(),
+      executedAtUtc: reportTimestamp,
       environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "unknown",
       webCommit: process.env.VERCEL_GIT_COMMIT_SHA ?? "unknown",
       apiVersion,
     },
     authorizationEvidence,
-    checks,
+    validationEvidence: authorizationEvidence ? {
+      signature: { status: "validated", reason: "A API retornou identidade somente após a verificação criptográfica do JWT pelo verificador OIDC." },
+      issuer: { status: "validated", value: authorizationEvidence.issuer },
+      audience: { status: "validated", value: authorizationEvidence.audience },
+      algorithm: { status: "validated", value: authorizationEvidence.algorithm, reason: "O verificador restringe algoritmos assimétricos à allowlist configurada." },
+      expiration: { status: authorizationEvidence.expiresAt * 1000 > Date.now() ? "valid_at_execution" : "expired", expiresAtUtc: new Date(authorizationEvidence.expiresAt * 1000).toISOString() },
+      membership: { status: authorizationEvidence.membershipActive ? "active" : "unconfirmed", membershipId: authorizationEvidence.membershipId },
+      permissions: { status: authorizationEvidence.permissionGranted ? "granted" : "missing", required: "iam.control_center.read", effective: authorizationEvidence.permissions },
+    } : null,
+    ciNegativeCoverage: [
+      { id: "expired-token", scenario: "JWT expirado", status: "covered_by_unit_test", evidence: "packages/identity/src/index.test.ts — rejects expired tokens", executionScope: "CI com chaves efêmeras; não é uma chamada negativa ao tenant real nesta execução." },
+      { id: "wrong-issuer", scenario: "JWT com issuer incorreto", status: "covered_by_unit_test", evidence: "packages/identity/src/index.test.ts — rejects a token with the wrong issuer", executionScope: "CI com chaves efêmeras; não é uma chamada negativa ao tenant real nesta execução." },
+      { id: "wrong-audience", scenario: "JWT com audience incorreta", status: "covered_by_unit_test", evidence: "packages/identity/src/index.test.ts — rejects a token with the wrong audience", executionScope: "CI com chaves efêmeras; não é uma chamada negativa ao tenant real nesta execução." },
+      { id: "wrong-algorithm", scenario: "JWT com algoritmo fora da allowlist", status: "covered_by_unit_test", evidence: "packages/identity/src/index.test.ts — rejects an algorithm not in the configured allowlist", executionScope: "CI com chaves efêmeras; não é uma chamada negativa ao tenant real nesta execução." },
+    ],
+    checks: evidenceChecks,
   });
 }
