@@ -137,6 +137,8 @@ export async function POST(request: NextRequest) {
               ? `Código inesperado: ${typeof payload.error === "string" ? payload.error : "ausente"}.`
               : requireControlCenterPermission && !permissionGranted
                 ? "HTTP 200 sem a permissão iam.control_center.read na resposta."
+                : id === "valid-session"
+                ? "A API aceitou o token, retornou HTTP 200 e confirmou a permissão iam.control_center.read."
                 : "O endpoint retornou o status e o código de negação esperados.",
       });
     } catch {
