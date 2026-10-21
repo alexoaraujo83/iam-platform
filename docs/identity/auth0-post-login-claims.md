@@ -19,6 +19,12 @@ The IAM Platform architecture requires the server to validate the access token a
 
 The previously proposed `https://iam-platform.example.com/claims` is a placeholder under a reserved example domain and must not be used in a real tenant.
 
+## Automated validation
+
+The repository test suite executes `apps/api/src/auth0-post-login-claims.test.ts` as part of Vitest. It tests valid HTTPS namespaces, reserved example domains and subdomains, malformed namespace values, role filtering, missing roles, and trailing-slash normalization. Run with `pnpm --filter @iam-platform/api test`.
+
+These tests execute the Action source with mocked Auth0 event/API objects. They do **not** prove that an Action is deployed, attached to the Login flow, or emitting claims in a real tenant.
+
 ## Validation checklist
 
 - [ ] Action secret is configured with a valid HTTPS namespace controlled by the organization.
