@@ -20,6 +20,10 @@ DECLARE
   bad_memberships text;
   can_create_public boolean;
 BEGIN
+  IF runtime_name <> 'iam_app_runtime' THEN
+    RAISE EXCEPTION 'unexpected_runtime_identity:%', runtime_name;
+  END IF;
+
   SELECT rolsuper, rolbypassrls, rolcreaterole, rolcreatedb
     INTO role_super, role_bypass, role_create_role, role_create_db
     FROM pg_roles WHERE rolname = runtime_name;
