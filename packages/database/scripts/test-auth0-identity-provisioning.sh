@@ -9,7 +9,7 @@ case "$DATABASE_URL" in
   *) echo "refusing_non_local_database_for_identity_provisioning_test" >&2; exit 2 ;;
 esac
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 psql_cmd=(psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1)
 
 "${psql_cmd[@]}" -f "$root/packages/database/migrations/0001_identity_tenancy.sql"
