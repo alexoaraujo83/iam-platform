@@ -8,6 +8,7 @@ type Check = {
   actualStatus?: number;
   status: "pass" | "fail" | "not_configured" | "blocked";
   detail?: string;
+  executedAtUtc?: string;
 };
 
 function safeResult(status: number, body: unknown) {
@@ -124,6 +125,7 @@ export async function POST(request: NextRequest) {
       checks.push({
         id,
         label,
+        executedAtUtc: new Date().toISOString(),
         expectedStatus,
         actualStatus: response.status,
         status: !isApplicationResponse ? "blocked" : expectedBehavior ? "pass" : "fail",
@@ -138,7 +140,7 @@ export async function POST(request: NextRequest) {
                 : "O endpoint retornou o status e o código de negação esperados.",
       });
     } catch {
-      checks.push({ id, label, expectedStatus, status: "blocked", detail: "API indisponível ou inacessível; teste inconclusivo." });
+      checks.push({ id, label, expectedStatus, status: "blocked", executedAtUtc: new Date().toISOString(), detail: "API indisponível ou inacessível; teste inconclusivo." });
     }
   }
 
@@ -178,7 +180,7 @@ export async function POST(request: NextRequest) {
   const reportTimestamp = new Date().toISOString();
   const evidenceChecks = checks.map((check) => ({
     ...check,
-    executedAtUtc: reportTimestamp,
+    executedAtUtc: check.executedAtUtc ?? reportTimestamp,
     result: check.status === "pass" ? "approved" : check.status === "fail" ? "rejected" : "inconclusive",
     reason: check.detail ?? (check.status === "pass" ? "Comportamento observado corresponde ao esperado." : "Não foi possível confirmar o comportamento esperado."),
   }));
