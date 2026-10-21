@@ -4,12 +4,27 @@
 BEGIN;
 
 DO $roles$
+DECLARE
+  v_owner_created boolean := false;
+  v_provisioner_created boolean := false;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'iam_identity_provisioner_owner') THEN
     CREATE ROLE iam_identity_provisioner_owner NOLOGIN BYPASSRLS;
+    v_owner_created := true;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'iam_identity_provisioner') THEN
     CREATE ROLE iam_identity_provisioner NOLOGIN NOBYPASSRLS;
+    v_provisioner_created := true;
+  END IF;
+
+  -- PostgreSQL may grant the creating CREATEROLE actor membership in new roles.
+  -- Remove only those migration-created memberships; pre-existing memberships
+  -- remain untouched and are rejected by the guard below.
+  IF v_owner_created THEN
+    EXECUTE format('REVOKE iam_identity_provisioner_owner FROM %I', current_user);
+  END IF;
+  IF v_provisioner_created THEN
+    EXECUTE format('REVOKE iam_identity_provisioner FROM %I', current_user);
   END IF;
 END;
 $roles$;
