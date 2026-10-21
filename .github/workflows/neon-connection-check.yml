@@ -59,4 +59,4 @@ jobs:
 
       - name: Report audit result
         if: success()
-        run: echo "Neon validado: identidade, privilégios efetivos, RLS/FORCE RLS e auditoria append-only."
+        run: echo "Neon validado: identidade, superuser/bypassrls/createrole/createdb/replication desativados, RLS/FORCE RLS e auditoria append-only."
