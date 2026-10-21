@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import { authorize } from "@iam-platform/authorization";
-import { appendPreAuthSecurityEvent, withAuthenticatedTenant } from "@iam-platform/database";
+import { appendPreAuthSecurityEvent, provisionExternalIdentity, withAuthenticatedTenant } from "@iam-platform/database";
 import { createOidcVerifier } from "@iam-platform/identity";
 import type { IdentityProviderConfig } from "@iam-platform/contracts";
 import { createApiServer, type RequiredTenantPermission } from "./app.js";
@@ -31,8 +31,14 @@ const verifyAccessToken = async (token: string) => {
   }
 };
 
+const runtimeDatabaseUrl = requiredEnv("DATABASE_URL");
+const provisionerDatabaseUrl = process.env.IDENTITY_PROVISIONER_DATABASE_URL?.trim();
+if (provisionerDatabaseUrl && provisionerDatabaseUrl === runtimeDatabaseUrl) {
+  throw new Error("identity_provisioner_database_url_must_be_separate");
+}
+
 const pool = new Pool({
-  connectionString: requiredEnv("DATABASE_URL"),
+  connectionString: runtimeDatabaseUrl,
   max: positiveIntegerEnv("DATABASE_POOL_MAX", 10),
   connectionTimeoutMillis: positiveIntegerEnv("DATABASE_CONNECT_TIMEOUT_MS", 5_000),
   idleTimeoutMillis: positiveIntegerEnv("DATABASE_IDLE_TIMEOUT_MS", 30_000),
@@ -41,6 +47,19 @@ const pool = new Pool({
 pool.on("error", () => {
   // Do not log connection strings or driver errors that may contain infrastructure details.
   console.error(JSON.stringify({ level: "error", event: "database_idle_client_error" }));
+});
+
+const identityProvisionerPool = provisionerDatabaseUrl
+  ? new Pool({
+      connectionString: provisionerDatabaseUrl,
+      max: positiveIntegerEnv("IDENTITY_PROVISIONER_POOL_MAX", 2),
+      connectionTimeoutMillis: positiveIntegerEnv("DATABASE_CONNECT_TIMEOUT_MS", 5_000),
+      idleTimeoutMillis: positiveIntegerEnv("DATABASE_IDLE_TIMEOUT_MS", 30_000),
+      application_name: "iam-platform-identity-provisioner"
+    })
+  : undefined;
+identityProvisionerPool?.on("error", () => {
+  console.error(JSON.stringify({ level: "error", event: "identity_provisioner_idle_client_error" }));
 });
 
 function positiveIntegerEnv(name: string, fallback: number): number {
@@ -95,6 +114,19 @@ const server = createApiServer(
   },
   async (event) => {
     await appendPreAuthSecurityEvent(pool, event);
+  },
+  async (accessToken) => {
+    if (!identityProvisionerPool) {
+      throw new Error("missing_required_configuration:IDENTITY_PROVISIONER_DATABASE_URL");
+    }
+    const identity = await verifyAccessToken(accessToken);
+    const roleResult = await identityProvisionerPool.query<{ current_user: string }>(
+      "SELECT current_user"
+    );
+    if (roleResult.rows[0]?.current_user !== "iam_identity_provisioner_login") {
+      throw new Error("identity_provisioner_database_role_mismatch");
+    }
+    await provisionExternalIdentity(identityProvisionerPool, identity);
   }
 );
 
@@ -128,7 +160,7 @@ async function shutdown(signal: "SIGTERM" | "SIGINT"): Promise<void> {
       // Stop idle keep-alive sockets immediately; in-flight requests get the grace period.
       server.closeIdleConnections();
       await closed;
-      await pool.end();
+      await Promise.all([pool.end(), ...(identityProvisionerPool ? [identityProvisionerPool.end()] : [])]);
       console.info(JSON.stringify({ level: "info", event: "shutdown_completed" }));
     } catch {
       console.error(JSON.stringify({ level: "error", event: "shutdown_failed" }));
