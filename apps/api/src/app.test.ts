@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
-import { createApiServer, createPreAuthAuditLimiter, type CheckReadiness, type RecordPreAuthSecurityEvent, type ResolveTenantContext, type TenantContextResponse } from "./app.js";
+import { createApiServer, createPreAuthAuditLimiter, type CheckReadiness, type GetDatabaseRuntimeIdentity, type RecordPreAuthSecurityEvent, type ResolveTenantContext, type TenantContextResponse } from "./app.js";
 
 const context: TenantContextResponse = {
   tenantId: "11111111-1111-4111-8111-111111111111",
@@ -15,9 +15,17 @@ async function requestApi(
   path: string,
   headers?: Record<string, string>,
   checkReadiness: CheckReadiness = async () => true,
-  recordSecurityEvent: RecordPreAuthSecurityEvent = async () => undefined
+  recordSecurityEvent: RecordPreAuthSecurityEvent = async () => undefined,
+  getDatabaseRuntimeIdentity: GetDatabaseRuntimeIdentity = async () => ({
+    roleName: "iam_app_runtime",
+    databaseName: "iam_platform",
+    branchId: "br-test-12345678",
+    projectId: "test-project-12345678"
+  })
 ): Promise<Response> {
-  const server = createApiServer(resolver, checkReadiness, recordSecurityEvent);
+  if (!process.env.IAM_EXPECTED_NEON_BRANCH_ID) vi.stubEnv("IAM_EXPECTED_NEON_BRANCH_ID", "br-test-12345678");
+  if (!process.env.IAM_EXPECTED_NEON_PROJECT_ID) vi.stubEnv("IAM_EXPECTED_NEON_PROJECT_ID", "test-project-12345678");
+  const server = createApiServer(resolver, checkReadiness, recordSecurityEvent, getDatabaseRuntimeIdentity);
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as AddressInfo;
@@ -375,7 +383,7 @@ describe("IAM HTTP API", () => {
       deploymentUrl: null
     });
     expect(snapshot.commitSha === null || /^[0-9a-f]{7,64}$/i.test(snapshot.commitSha)).toBe(true);
-    expect(snapshot.checks).toHaveLength(3);
+    expect(snapshot.checks).toHaveLength(4);
     expect(snapshot.checks[0]).toMatchObject({
       id: "api.runtime",
       status: "pass",
@@ -386,7 +394,21 @@ describe("IAM HTTP API", () => {
       status: "pass",
       source: { system: "postgresql-readiness", reference: null }
     });
+    expect(snapshot.databaseIdentity).toMatchObject({
+      roleName: "iam_app_runtime",
+      databaseName: "iam_platform",
+      branchId: "br-test-12345678",
+      projectId: "test-project-12345678",
+      expectedBranchId: "br-test-12345678",
+      expectedProjectId: "test-project-12345678",
+      verified: true
+    });
     expect(snapshot.checks[2]).toMatchObject({
+      id: "database.identity",
+      status: "pass",
+      source: { system: "neon-runtime-identity", reference: "br-test-12345678" }
+    });
+    expect(snapshot.checks[3]).toMatchObject({
       id: "deployment.metadata",
       status: "unknown",
       source: { system: "deployment-platform", reference: snapshot.commitSha }
@@ -478,6 +500,43 @@ describe("IAM HTTP API", () => {
       status: "fail",
       severity: "critical"
     }));
+  });
+
+  it("fails closed when the live database role or Neon branch differs from expected", async () => {
+    vi.stubEnv("IAM_EXPECTED_NEON_BRANCH_ID", "br-expected-12345678");
+    vi.stubEnv("IAM_EXPECTED_NEON_PROJECT_ID", "expected-project-12345678");
+    const response = await requestApi(
+      vi.fn<ResolveTenantContext>().mockResolvedValue({
+        ...context,
+        permissions: [{ resource: "iam", action: "control_center.read" }]
+      }),
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center/runtime",
+      { authorization: "Bearer valid-token" },
+      async () => true,
+      async () => undefined,
+      async () => ({
+        roleName: "iam_runtime",
+        databaseName: "iam_platform",
+        branchId: "br-actual-12345678",
+        projectId: "expected-project-12345678"
+      })
+    );
+
+    expect(response.status).toBe(503);
+    const snapshot = await response.json();
+    expect(snapshot.databaseIdentity).toMatchObject({
+      roleName: "iam_runtime",
+      branchId: "br-actual-12345678",
+      expectedBranchId: "br-expected-12345678",
+      verified: false
+    });
+    expect(snapshot.checks).toContainEqual(expect.objectContaining({
+      id: "database.identity",
+      status: "fail",
+      severity: "critical"
+    }));
+    expect(snapshot.overallStatus).toBe("fail");
+    expect(JSON.stringify(snapshot)).not.toContain("DATABASE_URL");
   });
 
   it("denies runtime diagnostics without the control-center permission", async () => {
