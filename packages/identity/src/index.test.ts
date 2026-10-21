@@ -133,6 +133,13 @@ describe("OIDC verifier", () => {
     );
   });
 
+  it.each([
+    "https://issuer.example.test/?tenant=untrusted",
+    "https://issuer.example.test/#fragment"
+  ])("rejects an OIDC issuer containing a query or fragment: %s", (issuer) => {
+    expect(() => createOidcVerifier({ ...config, issuer })).toThrow("invalid_oidc_issuer");
+  });
+
   it("rejects none, symmetric and unknown algorithms in configuration", () => {
     for (const algorithm of ["none", "HS256", "RS512"]) {
       expect(() => createOidcVerifier({ ...config, allowedAlgorithms: [algorithm] })).toThrow(
