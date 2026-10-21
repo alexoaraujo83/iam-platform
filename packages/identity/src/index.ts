@@ -60,7 +60,10 @@ function validateConfig(config: IdentityProviderConfig): void {
     throw new Error("invalid_oidc_configuration");
   }
 
-  assertHttpsUrl(config.issuer, "invalid_oidc_issuer");
+  const issuerUrl = assertHttpsUrl(config.issuer, "invalid_oidc_issuer");
+  if (issuerUrl.search || issuerUrl.hash) {
+    throw new Error("invalid_oidc_issuer");
+  }
   assertHttpsUrl(config.jwksUri, "invalid_oidc_jwks_uri");
 
   if (
@@ -72,7 +75,7 @@ function validateConfig(config: IdentityProviderConfig): void {
   }
 }
 
-function assertHttpsUrl(value: string, errorCode: string): void {
+function assertHttpsUrl(value: string, errorCode: string): URL {
   let url: URL;
   try {
     url = new URL(value);
@@ -83,6 +86,7 @@ function assertHttpsUrl(value: string, errorCode: string): void {
   if (url.protocol !== "https:" || url.username || url.password) {
     throw new Error(errorCode);
   }
+  return url;
 }
 
 function toVerifiedIdentity(payload: JWTPayload, algorithm: string | undefined): VerifiedExternalIdentity {
