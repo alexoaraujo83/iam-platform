@@ -60,7 +60,7 @@ function validateConfig(config: IdentityProviderConfig): void {
     throw new Error("invalid_oidc_configuration");
   }
 
-  const issuerUrl = assertHttpsUrl(config.issuer, "invalid_oidc_issuer");
+  assertHttpsUrl(config.issuer, "invalid_oidc_issuer");
   if (/[?#]/.test(config.issuer)) {
     throw new Error("invalid_oidc_issuer");
   }
