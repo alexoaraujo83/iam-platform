@@ -32,6 +32,7 @@ async function requestApi(
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(servers.splice(0).map((server) =>
     new Promise<void>((resolve, reject) =>
       server.close((error) => error ? reject(error) : resolve())
@@ -383,6 +384,7 @@ describe("IAM HTTP API", () => {
   });
 
   it("provisions a verified identity through the explicit bootstrap endpoint", async () => {
+    vi.stubEnv("IAM_IDENTITY_BOOTSTRAP_ENABLED", "true");
     const provisionIdentity = vi.fn<ProvisionIdentity>().mockResolvedValue(undefined);
     const resolver = vi.fn<ResolveTenantContext>();
     const recordSecurityEvent = vi.fn<RecordPreAuthSecurityEvent>().mockResolvedValue(undefined);
@@ -428,6 +430,7 @@ describe("IAM HTTP API", () => {
   });
 
   it("fails closed and audits bootstrap when the provisioner pool is not configured", async () => {
+    vi.stubEnv("IAM_IDENTITY_BOOTSTRAP_ENABLED", "true");
     const recordSecurityEvent = vi.fn<RecordPreAuthSecurityEvent>().mockResolvedValue(undefined);
     const response = await requestApi(
       vi.fn<ResolveTenantContext>(),
@@ -449,6 +452,7 @@ describe("IAM HTTP API", () => {
   });
 
   it("does not leak database details when bootstrap provisioning fails", async () => {
+    vi.stubEnv("IAM_IDENTITY_BOOTSTRAP_ENABLED", "true");
     const provisionIdentity = vi.fn<ProvisionIdentity>().mockRejectedValue(
       new Error("database_unavailable:password-do-not-leak")
     );
