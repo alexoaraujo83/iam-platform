@@ -42,6 +42,6 @@ A função deve validar entradas não vazias, fazer a criação de principal/ide
 ## Gates de implantação
 
 - Não criar credencial de provisionamento nem aplicar migração diretamente em Production nesta etapa.
-- Antes de habilitar o fluxo, criar e verificar o papel/credencial de provisionamento separada em Preview e confirmar que o deployment usa a branch Neon Preview.
+- Provisionar `iam_identity_provisioner_login` com credencial gerenciada fora do repositório, verificar atributos/memberships efetivos no PostgreSQL e confirmar que o deployment usa a branch Neon Preview. A API ainda precisa integrar esse pool separado antes de ativar o fluxo.
 - Executar CI no SHA exato, testes de concorrência/RLS e revisão independente do diff.
 - Manter PR em Draft até as evidências acima estarem completas.
