@@ -104,6 +104,11 @@ BEGIN
        'public.provision_external_identity(text,text)', 'EXECUTE') THEN
     RAISE EXCEPTION 'runtime_can_execute_identity_provisioning';
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='iam_identity_provisioner_owner'
+      AND NOT rolcanlogin AND NOT rolsuper AND rolbypassrls
+      AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication) THEN
+    RAISE EXCEPTION 'provisioner_owner_role_has_excessive_attributes';
+  END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='iam_identity_provisioner'
       AND (rolcanlogin OR rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb OR rolreplication)) THEN
     RAISE EXCEPTION 'provisioner_executor_role_has_excessive_attributes';
