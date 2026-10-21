@@ -18,6 +18,28 @@ $roles$;
 ALTER ROLE iam_identity_provisioner_owner NOLOGIN BYPASSRLS NOCREATEROLE NOCREATEDB;
 ALTER ROLE iam_identity_provisioner NOLOGIN NOBYPASSRLS NOCREATEROLE NOCREATEDB;
 
+-- Never silently reuse either role if it already participates in role inheritance.
+-- Membership could add privileges beyond the narrow grants below or allow another
+-- principal to SET ROLE to the SECURITY DEFINER owner. Fail closed for manual review.
+DO $membership_guard$
+DECLARE
+  v_role_ids oid[];
+BEGIN
+  SELECT array_agg(oid) INTO v_role_ids
+    FROM pg_roles
+   WHERE rolname IN ('iam_identity_provisioner_owner', 'iam_identity_provisioner');
+
+  IF EXISTS (
+    SELECT 1
+      FROM pg_auth_members
+     WHERE roleid = ANY(v_role_ids)
+        OR member = ANY(v_role_ids)
+  ) THEN
+    RAISE EXCEPTION 'identity_provisioner_role_membership_requires_review';
+  END IF;
+END
+$membership_guard$;
+
 -- CREATE is temporary and required by PostgreSQL for function ownership transfer.
 GRANT USAGE, CREATE ON SCHEMA public TO iam_identity_provisioner_owner;
 GRANT SELECT, INSERT ON TABLE public.principals TO iam_identity_provisioner_owner;
