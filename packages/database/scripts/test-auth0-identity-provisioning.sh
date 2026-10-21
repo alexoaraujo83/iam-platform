@@ -23,10 +23,15 @@ psql_cmd=(psql "$test_database_url" -X -v ON_ERROR_STOP=1)
 "${psql_cmd[@]}" -f "$root/packages/database/migrations/0001_identity_tenancy.sql"
 "${psql_cmd[@]}" -f "$root/packages/database/migrations/0002_durable_audit_controls.sql"
 
-# A disposable superuser creates roles without granting role memberships.
+# Model Neon’s admin membership plus a dedicated low-privilege LOGIN role.
+# The application connects as the LOGIN role, which inherits only EXECUTE from the executor.
 "${psql_cmd[@]}" <<'SQL'
-CREATE ROLE iam_identity_provisioner_owner NOLOGIN BYPASSRLS NOCREATEROLE NOCREATEDB;
-CREATE ROLE iam_identity_provisioner NOLOGIN NOBYPASSRLS NOCREATEROLE NOCREATEDB;
+CREATE ROLE iam_owner NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
+CREATE ROLE iam_identity_provisioner_owner NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
+CREATE ROLE iam_identity_provisioner NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
+CREATE ROLE iam_identity_provisioner_login LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
+GRANT iam_identity_provisioner_owner, iam_identity_provisioner TO iam_owner;
+GRANT iam_identity_provisioner TO iam_identity_provisioner_login;
 SQL
 
 "${psql_cmd[@]}" -f "$root/packages/database/migrations/0006_auth0_identity_provisioning.sql"
@@ -66,24 +71,39 @@ fi
 "${psql_cmd[@]}" <<'SQL'
 DO $assert$
 BEGIN
-  IF NOT has_function_privilege('iam_identity_provisioner',
+  IF NOT has_function_privilege('iam_identity_provisioner_login',
        'public.provision_external_identity(text,text)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'provisioner_missing_execute';
+    RAISE EXCEPTION 'provisioner_login_missing_execute';
   END IF;
-  IF has_table_privilege('iam_identity_provisioner', 'public.principals', 'SELECT')
-     OR has_table_privilege('iam_identity_provisioner', 'public.principals', 'INSERT')
-     OR has_table_privilege('iam_identity_provisioner', 'public.external_identities', 'SELECT')
-     OR has_table_privilege('iam_identity_provisioner', 'public.external_identities', 'INSERT') THEN
-    RAISE EXCEPTION 'provisioner_has_direct_identity_table_access';
+  IF has_table_privilege('iam_identity_provisioner_login', 'public.principals', 'SELECT')
+     OR has_table_privilege('iam_identity_provisioner_login', 'public.principals', 'INSERT')
+     OR has_table_privilege('iam_identity_provisioner_login', 'public.external_identities', 'SELECT')
+     OR has_table_privilege('iam_identity_provisioner_login', 'public.external_identities', 'INSERT') THEN
+    RAISE EXCEPTION 'provisioner_login_has_direct_identity_table_access';
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='iam_identity_provisioner'
-      AND (rolcanlogin OR rolbypassrls OR rolcreaterole OR rolcreatedb)) THEN
-    RAISE EXCEPTION 'provisioner_role_has_excessive_attributes';
+      AND (rolcanlogin OR rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb OR rolreplication)) THEN
+    RAISE EXCEPTION 'provisioner_executor_role_has_excessive_attributes';
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_auth_members m
-      JOIN pg_roles r ON r.oid IN (m.roleid, m.member)
-      WHERE r.rolname IN ('iam_identity_provisioner_owner','iam_identity_provisioner')) THEN
-    RAISE EXCEPTION 'provisioner_role_membership_found';
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='iam_identity_provisioner_login'
+      AND rolcanlogin AND NOT rolsuper AND NOT rolbypassrls
+      AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication) THEN
+    RAISE EXCEPTION 'provisioner_login_role_has_excessive_attributes';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM pg_auth_members m
+      JOIN pg_roles granted ON granted.oid=m.roleid
+      JOIN pg_roles member_role ON member_role.oid=m.member
+     WHERE member_role.rolname IN ('iam_identity_provisioner_owner','iam_identity_provisioner')
+        OR (granted.rolname='iam_identity_provisioner_owner' AND member_role.rolname <> 'iam_owner')
+        OR (granted.rolname='iam_identity_provisioner'
+            AND member_role.rolname NOT IN ('iam_owner','iam_identity_provisioner_login'))
+        OR (member_role.rolname='iam_identity_provisioner_login'
+            AND granted.rolname <> 'iam_identity_provisioner')
+        OR granted.rolname='iam_identity_provisioner_login'
+  ) THEN
+    RAISE EXCEPTION 'unexpected_provisioning_role_membership';
   END IF;
   IF (SELECT count(*) FROM public.principals) <> 2
      OR (SELECT count(*) FROM public.external_identities) <> 2 THEN
@@ -99,7 +119,7 @@ END
 $assert$;
 SQL
 
-if "${psql_cmd[@]}" -Atqc "SET ROLE iam_identity_provisioner; SELECT * FROM public.principals" >/dev/null 2>&1; then
+if "${psql_cmd[@]}" -Atqc "SET ROLE iam_identity_provisioner_login; SELECT * FROM public.principals" >/dev/null 2>&1; then
   echo "provisioner_can_read_principals_directly" >&2
   exit 1
 fi
