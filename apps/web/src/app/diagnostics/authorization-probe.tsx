@@ -63,7 +63,8 @@ export default function AuthorizationProbe() {
     document.body.appendChild(link);
     link.click();
     link.remove();
-    URL.revokeObjectURL(url);
+    // Keep the Blob URL alive briefly so the browser can start consuming the download.
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   async function runProbe() {
