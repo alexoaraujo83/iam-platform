@@ -13,6 +13,8 @@ BEGIN
      WHERE rolname = 'iam_identity_provisioner_owner'
        AND NOT rolcanlogin
        AND rolbypassrls
+       AND NOT rolsuper
+       AND NOT rolreplication
        AND NOT rolcreaterole
        AND NOT rolcreatedb
   ) THEN
