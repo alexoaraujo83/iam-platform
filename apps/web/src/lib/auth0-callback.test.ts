@@ -108,7 +108,7 @@ describe("handleAuth0Callback", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("https://iam-platform-ruddy-preview.vercel.app/v1/identity/bootstrap");
+    expect(String(url)).toBe("https://iam-platform-ruddy-preview.vercel.app/v1/identity/bootstrap");
     expect(init.method).toBe("POST");
     const headers = new Headers(init.headers);
     expect(headers.get("authorization")).toBe("Bearer test-access-token");
