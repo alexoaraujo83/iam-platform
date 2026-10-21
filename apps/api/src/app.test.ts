@@ -384,7 +384,8 @@ describe("IAM HTTP API", () => {
       {},
       async () => true,
       recordSecurityEvent,
-      provisionIdentity
+      provisionIdentity,
+      "POST"
     );
 
     expect(response.status).toBe(401);
@@ -429,7 +430,8 @@ describe("IAM HTTP API", () => {
       { authorization: "Bearer verified-access-token" },
       async () => true,
       recordSecurityEvent,
-      provisionIdentity
+      provisionIdentity,
+      "POST"
     );
 
     expect(response.status).toBe(503);
