@@ -48,10 +48,7 @@ BEGIN
 END;
 $roles$;
 
--- Enforce role attributes even if a same-named role already existed.
-ALTER ROLE iam_identity_provisioner_owner NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
-ALTER ROLE iam_identity_provisioner NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
-ALTER ROLE iam_identity_provisioner_login LOGIN INHERIT NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION;
+-- Role attributes are validated above; this migration does not mutate role configuration.
 
 -- Neon administrators may be members of the narrowly scoped roles. The runtime
 -- roles must never be members of either provisioning role; only iam_owner may
