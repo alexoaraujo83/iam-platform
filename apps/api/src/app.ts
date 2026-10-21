@@ -36,6 +36,11 @@ export interface DatabaseRuntimeIdentity {
   readonly projectId: string | null;
 }
 export type GetDatabaseRuntimeIdentity = () => Promise<DatabaseRuntimeIdentity>;
+export type ProvisionIdentity = (accessToken: string) => Promise<void>;
+export interface ApiHandlerOptions {
+  readonly getDatabaseRuntimeIdentity?: GetDatabaseRuntimeIdentity;
+  readonly provisionIdentity?: ProvisionIdentity;
+}
 export type RecordPreAuthSecurityEvent = (event: PreAuthSecurityEvent) => Promise<void>;
 export type ApiRequestHandler = (request: IncomingMessage, response: ServerResponse) => void;
 
@@ -128,7 +133,7 @@ export function createApiHandler(
   resolveTenantContext: ResolveTenantContext,
   checkReadiness: CheckReadiness,
   recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent,
-  getDatabaseRuntimeIdentity?: GetDatabaseRuntimeIdentity
+  options: ApiHandlerOptions = {}
 ): ApiRequestHandler {
   // Bound unauthenticated write amplification per socket peer. Do not trust
   // X-Forwarded-For here; it is only safe behind a separately trusted proxy.
@@ -231,7 +236,7 @@ export function createApiHandler(
         const deploymentUrl = safeDeploymentUrl(process.env.VERCEL_URL);
         let rawDatabaseIdentity: DatabaseRuntimeIdentity | null = null;
         try {
-          rawDatabaseIdentity = await getDatabaseRuntimeIdentity?.() ?? null;
+          rawDatabaseIdentity = await options.getDatabaseRuntimeIdentity?.() ?? null;
         } catch {
           // Do not expose driver errors or connection details in diagnostics.
         }
@@ -367,7 +372,7 @@ export function createApiServer(
   resolveTenantContext: ResolveTenantContext,
   checkReadiness: CheckReadiness,
   recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent,
-  getDatabaseRuntimeIdentity?: GetDatabaseRuntimeIdentity
+  options: ApiHandlerOptions = {}
 ): Server {
-  return createServer(createApiHandler(resolveTenantContext, checkReadiness, recordPreAuthSecurityEvent, getDatabaseRuntimeIdentity));
+  return createServer(createApiHandler(resolveTenantContext, checkReadiness, recordPreAuthSecurityEvent, options));
 }
