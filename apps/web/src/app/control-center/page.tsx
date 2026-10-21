@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import styles from "./control-center.module.css";
 import AuthorizationProbe from "../diagnostics/authorization-probe";
 
@@ -114,10 +115,10 @@ export default function ControlCenterPage() {
   return (
     <main className={styles.shell}>
       <aside className={styles.sidebar}>
-        <a className={styles.brand} href="/control-center" aria-label="IAM Platform Control Center home">
+        <Link className={styles.brand} href="/control-center" aria-label="IAM Platform Control Center home">
           <span className={styles.brandMark}>i</span>
           <span className={styles.brandCopy}><strong>iam platform</strong><small>CONTROL CENTER</small></span>
-        </a>
+        </Link>
         <div className={styles.navLabel}>WORKSPACE</div>
         <nav className={styles.nav} aria-label="Control Center modules">
           {modules.map((item) => (
