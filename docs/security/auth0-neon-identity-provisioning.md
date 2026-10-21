@@ -19,6 +19,9 @@ A função deve validar entradas não vazias, fazer a criação de principal/ide
 
 ## Integração de aplicação
 
+- O endpoint explícito `POST /v1/identity/bootstrap` aceita somente bearer token; não aceita `issuer`/`subject` no corpo ou query string. A API valida o token com o verificador OIDC configurado antes de chamar a função SQL.
+- O endpoint usa `IDENTITY_PROVISIONER_DATABASE_URL` opcional, verifica que a sessão PostgreSQL é `iam_identity_provisioner_login` e retorna `503` sanitizado se a credencial não estiver configurada. As rotas tenant-scoped existentes não dependem dessa variável.
+- O bootstrap é limitado a 10 chamadas por peer por minuto, não devolve `principalId` e nunca cria tenant/membership. Sucesso de criação é auditado atomicamente pela função; falhas são registradas em `global_security_events` sem tokens ou claims.
 - Verificar o JWT antes de chamar o serviço de provisionamento.
 - O endpoint/handler de login não pode aceitar issuer/subject fornecidos diretamente pelo cliente.
 - A chamada de provisionamento deve usar somente a credencial separada; o pool padrão mantém apenas os privilégios de runtime.
@@ -33,7 +36,7 @@ A função deve validar entradas não vazias, fazer a criação de principal/ide
 3. Chamadas concorrentes para o mesmo par produzem um único mapeamento e não deixam órfãos.
 4. issuer/subject vazios ou só com espaços são rejeitados.
 5. Mesmo subject com issuer diferente é identidade distinta; issuer incorreto é rejeitado pelo verificador OIDC antes do provisionamento.
-6. Falha de banco faz rollback; nenhuma autorização é concedida.
+6. Falha de banco faz rollback; nenhuma autorização é concedida e a falha recebe auditoria global sanitizada.
 7. O papel de provisionamento não consegue modificar tenants/memberships/roles/permissions; o runtime normal não consegue executar o provisionamento nem escrever nas tabelas de identidade.
 8. Identidade provisionada sem membership continua negada; membership de outro tenant não permite acesso cross-tenant.
 9. Testes de integração em branch Neon descartável; comprovar que Preview não altera Production.
@@ -42,6 +45,6 @@ A função deve validar entradas não vazias, fazer a criação de principal/ide
 ## Gates de implantação
 
 - Não criar credencial de provisionamento nem aplicar migração diretamente em Production nesta etapa.
-- Provisionar `iam_identity_provisioner_login` com credencial gerenciada fora do repositório, verificar atributos/memberships efetivos no PostgreSQL e confirmar que o deployment usa a branch Neon Preview. A API ainda precisa integrar esse pool separado antes de ativar o fluxo.
+- Provisionar `iam_identity_provisioner_login` com credencial gerenciada fora do repositório, verificar atributos/memberships efetivos no PostgreSQL e confirmar que o deployment usa a branch Neon Preview. O endpoint de bootstrap está no código, mas só fica ativo quando a variável separada for configurada e a API for implantada.
 - Executar CI no SHA exato, testes de concorrência/RLS e revisão independente do diff.
 - Manter PR em Draft até as evidências acima estarem completas.
