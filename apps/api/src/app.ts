@@ -194,6 +194,15 @@ export function createApiHandler(
         sendJson(response, 403, { error: "active_membership_required" });
         return;
       }
+      if (!context.permissions.some(
+        (permission) =>
+          permission.resource === requiredPermission.resource &&
+          permission.action === requiredPermission.action
+      )) {
+        // Defense in depth: do not rely solely on the resolver honoring its permission argument.
+        sendJson(response, 403, { error: "permission_denied" });
+        return;
+      }
       sendJson(response, 200, {
         tenantId: context.tenantId,
         principalId: context.principalId,
