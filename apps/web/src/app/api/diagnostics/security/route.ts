@@ -48,19 +48,21 @@ export async function POST(request: NextRequest) {
 
   const checks: Check[] = [];
   let apiVersion: string | null = null;
-  let authorizationEvidence: {
-    issuer: string;
-    subject: string;
-    audience: string | string[];
-    algorithm: string;
-    expiresAt: number;
-    tenantId: string;
-    principalId: string;
-    membershipId: string;
-    permissionGranted: boolean;
-    membershipActive: boolean;
-    permissions: string[];
-  } | null = null;
+  const authorizationEvidence: {
+    current: {
+      issuer: string;
+      subject: string;
+      audience: string | string[];
+      algorithm: string;
+      expiresAt: number;
+      tenantId: string;
+      principalId: string;
+      membershipId: string;
+      permissionGranted: boolean;
+      membershipActive: boolean;
+      permissions: string[];
+    } | null;
+  } = { current: null };
 
   async function probe(
     id: string,
@@ -102,7 +104,7 @@ export async function POST(request: NextRequest) {
           typeof payload.principalId === "string" &&
           typeof payload.membershipId === "string"
         ) {
-          authorizationEvidence = {
+          authorizationEvidence.current = {
             issuer: identity.issuer,
             subject: identity.subject,
             audience: identity.audience as string | string[],
@@ -184,10 +186,9 @@ export async function POST(request: NextRequest) {
     result: check.status === "pass" ? "approved" : check.status === "fail" ? "rejected" : "inconclusive",
     reason: check.detail ?? (check.status === "pass" ? "Comportamento observado corresponde ao esperado." : "Não foi possível confirmar o comportamento esperado."),
   }));
-  // TypeScript cannot track assignments made inside the async probe closure.
-  // Snapshot the value after all probes have completed so the report retains its declared type.
-  type AuthorizationEvidence = NonNullable<typeof authorizationEvidence>;
-  const confirmedEvidence = authorizationEvidence as AuthorizationEvidence | null;
+  // Read the mutable holder after all awaited probes have completed.
+  // This preserves the evidence type without a cast or weakening type safety.
+  const confirmedEvidence = authorizationEvidence.current;
   const failed = checks.some((check) => check.status === "fail");
   const blocked = checks.some((check) => check.status === "blocked");
   const notConfigured = checks.some((check) => check.status === "not_configured");
@@ -201,7 +202,7 @@ export async function POST(request: NextRequest) {
       apiCommit: apiVersion,
       apiVersion,
     },
-    authorizationEvidence,
+    authorizationEvidence: confirmedEvidence,
     validationEvidence: confirmedEvidence ? {
       signature: { status: "validated_by_api", reason: "A API só retorna identityEvidence depois que o verificador OIDC conclui jwtVerify; este relatório registra a evidência retornada, não uma segunda verificação independente." },
       issuer: { status: "accepted_by_api", value: confirmedEvidence.issuer },
