@@ -86,7 +86,7 @@ BEGIN
         OR (roleid = v_owner_id AND member <> v_admin_id)
         OR (roleid = v_executor_id AND member NOT IN (v_admin_id, v_login_id))
         OR (member = v_login_id AND roleid <> v_executor_id)
-        OR roleid = v_login_id
+        OR (roleid = v_login_id AND member <> v_admin_id)
   ) THEN
     RAISE EXCEPTION 'identity_provisioner_role_membership_requires_review';
   END IF;
