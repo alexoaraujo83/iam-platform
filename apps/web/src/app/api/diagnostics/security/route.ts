@@ -85,6 +85,7 @@ export async function POST(request: NextRequest) {
         ? await response.json().catch(() => ({})) as Record<string, unknown>
         : {};
       const isApplicationResponse = contentType.includes("application/json");
+      let validIdentityEvidence = false;
       const permissions = Array.isArray(payload.permissions) ? payload.permissions as { resource?: unknown; action?: unknown }[] : [];
       const permissionGranted = permissions.some((permission) =>
         permission?.resource === "iam" && permission?.action === "control_center.read",
@@ -103,6 +104,7 @@ export async function POST(request: NextRequest) {
           typeof payload.principalId === "string" &&
           typeof payload.membershipId === "string"
         ) {
+          validIdentityEvidence = true;
           authorizationEvidence.current = {
             issuer: identity.issuer,
             subject: identity.subject,
@@ -121,17 +123,23 @@ export async function POST(request: NextRequest) {
       }
       const codeMatches = !expectedError || payload.error === expectedError;
       const expectedBehavior = response.status === expectedStatus && codeMatches &&
-        (!requireControlCenterPermission || permissionGranted);
+        (!requireControlCenterPermission || permissionGranted) &&
+        (id !== "valid-session" || validIdentityEvidence);
       checks.push({
         id,
         label,
         executedAtUtc: new Date().toISOString(),
         expectedStatus,
         actualStatus: response.status,
-        status: !isApplicationResponse ? "blocked" : expectedBehavior ? "pass" : "fail",
+        status: !isApplicationResponse ||
+          (id === "valid-session" && response.status === 200 && !validIdentityEvidence)
+          ? "blocked"
+          : expectedBehavior ? "pass" : "fail",
         detail: !isApplicationResponse
           ? "Resposta não JSON: a proteção da plataforma pode ter interceptado a chamada; resultado não conclusivo."
-          : response.status !== expectedStatus
+          : id === "valid-session" && response.status === 200 && !validIdentityEvidence
+            ? "Resposta HTTP 200 sem evidência de identidade completa; resultado inconclusivo."
+            : response.status !== expectedStatus
             ? typeof payload.error === "string" ? payload.error : "Status inesperado."
             : !codeMatches
               ? `Código inesperado: ${typeof payload.error === "string" ? payload.error : "ausente"}.`
