@@ -66,15 +66,33 @@ export async function handleAuth0Callback(
   }
 
   if (process.env.IAM_IDENTITY_BOOTSTRAP_ENABLED === "true") {
-    const tokenSet = session && "tokenSet" in session
+    const tokenSet = "tokenSet" in session
       ? (session as { tokenSet?: { accessToken?: unknown } }).tokenSet
       : undefined;
     const accessToken = typeof tokenSet?.accessToken === "string"
       ? tokenSet.accessToken
       : undefined;
-    const apiBase = process.env.IAM_API_BASE_URL?.trim().replace(/\/$/, "");
+    const rawApiBase = process.env.IAM_API_BASE_URL?.trim();
 
-    if (!accessToken || !apiBase) {
+    let apiUrl: URL | undefined;
+    try {
+      if (rawApiBase) apiUrl = new URL(rawApiBase);
+    } catch {
+      apiUrl = undefined;
+    }
+
+    const isLocalHttp =
+      apiUrl?.protocol === "http:" &&
+      (apiUrl.hostname === "localhost" || apiUrl.hostname === "127.0.0.1" || apiUrl.hostname === "[::1]");
+    const safeApiUrl = apiUrl &&
+      (apiUrl.protocol === "https:" || isLocalHttp) &&
+      !apiUrl.username &&
+      !apiUrl.password &&
+      (apiUrl.pathname === "/" || apiUrl.pathname === "")
+      ? apiUrl
+      : undefined;
+
+    if (!accessToken || !safeApiUrl) {
       console.warn(JSON.stringify({
         level: "warn",
         event: "identity_bootstrap_unavailable",
@@ -83,27 +101,45 @@ export async function handleAuth0Callback(
       destination.searchParams.set("identity_bootstrap", "unavailable");
     } else {
       try {
-        const headers: Record<string, string> = {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: "application/json"
-        };
-        const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim();
-        if (bypassSecret) headers["x-vercel-protection-bypass"] = bypassSecret;
-
-        const response = await fetch(`${apiBase}/v1/identity/bootstrap`, {
+        safeApiUrl.search = "";
+        safeApiUrl.hash = "";
+        const endpoint = new URL("/v1/identity/bootstrap", safeApiUrl);
+        const response = await fetch(endpoint, {
           method: "POST",
-          headers,
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/json"
+          },
           cache: "no-store",
+          redirect: "manual",
           signal: AbortSignal.timeout(8_000)
         });
-        if (!response.ok) {
+
+        let provisioned = false;
+        if (response.ok && response.headers.get("content-type")?.toLowerCase().includes("application/json")) {
+          try {
+            const payload: unknown = await response.json();
+            provisioned = typeof payload === "object" &&
+              payload !== null &&
+              "status" in payload &&
+              payload.status === "identity_provisioned";
+          } catch {
+            provisioned = false;
+          }
+        }
+
+        if (!provisioned) {
           console.warn(JSON.stringify({
             level: "warn",
             event: "identity_bootstrap_failed",
-            reason: "upstream_rejected",
+            reason: response.status >= 300 && response.status < 400
+              ? "upstream_protection_redirect"
+              : "upstream_rejected",
             status: response.status
           }));
           destination.searchParams.set("identity_bootstrap", "unavailable");
+        } else {
+          destination.searchParams.delete("identity_bootstrap");
         }
       } catch {
         console.warn(JSON.stringify({
