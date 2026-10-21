@@ -2,7 +2,6 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 import { auth0 } from "../lib/auth0";
 import styles from "./page.module.css";
-import IdentityBootstrapStatus from "./identity-bootstrap-status";
 
 async function SessionActions() {
   // Session cookies are request-specific; keep this access behind Suspense.
@@ -51,9 +50,6 @@ export default function Home() {
         <p className={styles.description}>
           Centralize identity, organization membership, and access policy management.
         </p>
-        <Suspense fallback={null}>
-          <IdentityBootstrapStatus />
-        </Suspense>
 
         <Suspense fallback={<SessionActionsFallback />}>
           <SessionActions />
