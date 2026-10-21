@@ -223,3 +223,5 @@
 .telemetryList li span:last-child, .telemetryList li a { flex: 0 0 auto; color: #59667a; font-size: 9px; font-weight: 700; text-decoration: none; }
 .telemetryList li a:hover { color: #5e57c8; text-decoration: underline; }
 @media (max-width: 820px) { .telemetryGrid { grid-template-columns: 1fr; } }
+
+.authFlowTest { margin-top: 24px; }
