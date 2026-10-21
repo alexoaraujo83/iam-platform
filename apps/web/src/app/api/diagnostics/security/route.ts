@@ -197,7 +197,6 @@ export async function POST(request: NextRequest) {
       executedAtUtc: reportTimestamp,
       environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "unknown",
       webCommit: process.env.VERCEL_GIT_COMMIT_SHA ?? "unknown",
-      apiCommit: apiVersion,
       apiVersion,
     },
     authorizationEvidence: confirmedEvidence,
