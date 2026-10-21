@@ -6,7 +6,7 @@ import styles from "../page.module.css";
 type DiagnosticResult = {
   ok: boolean;
   outcome: string;
-  execution?: { executedAtUtc: string; environment: string; webCommit: string; apiVersion: string | null };
+  execution?: { executedAtUtc: string; environment: string; webCommit: string; apiCommit?: string | null; apiVersion: string | null };
   authorizationEvidence?: {
     issuer: string;
     subject: string;
@@ -156,7 +156,7 @@ export default function AuthorizationProbe() {
             </p>
             <button className={styles.button} type="button" onClick={downloadReport}>Baixar relatório de evidências (JSON)</button>
             <ul className={styles.permissionList}>
-              {result.execution && <li><strong>Executado em (UTC):</strong> {result.execution.executedAtUtc}<br /><strong>Ambiente:</strong> {result.execution.environment}<br /><strong>Commit web:</strong> <code>{result.execution.webCommit}</code><br /><strong>Versão/commit da API:</strong> <code>{result.execution.apiVersion ?? "Não informada pela API"}</code></li>}
+              {result.execution && <li><strong>Executado em (UTC):</strong> {result.execution.executedAtUtc}<br /><strong>Ambiente:</strong> {result.execution.environment}<br /><strong>Commit web:</strong> <code>{result.execution.webCommit}</code><br /><strong>Commit da API:</strong> <code>{result.execution.apiCommit ?? result.execution.apiVersion ?? "Não informado pela API"}</code></li>}
               {result.authorizationEvidence && (
                 <li>
                   <strong>Evidência confirmada pela API</strong>
