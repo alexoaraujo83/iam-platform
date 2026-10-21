@@ -63,6 +63,7 @@ export interface AuditEvent {
 
 export type {
   ControlCenterEnvironment,
+  DatabaseRuntimeIdentityEvidence,
   DiagnosticCheck,
   DiagnosticSeverity,
   EvidenceArtifact,
