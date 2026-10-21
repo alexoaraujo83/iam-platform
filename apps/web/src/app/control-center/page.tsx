@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import styles from "./control-center.module.css";
+import AuthorizationProbe from "../diagnostics/authorization-probe";
 
 const modules = [
   { id: "overview", label: "Visão geral", eyebrow: "CONTROL CENTER", title: "Operational overview", description: "Visão unificada do estado operacional, segurança, entregas e evidências.", icon: "◫" },
@@ -208,6 +209,7 @@ export default function ControlCenterPage() {
               <div className={styles.detailBanner}><div className={styles.detailIcon}>{activeModule.icon}</div><div><p className={styles.eyebrow}>MODULE WORKSPACE</p><h2>{detail.heading}</h2><p>Estrutura funcional preparada; conectores e dados operacionais ainda precisam ser implementados e validados.</p></div></div>
               <div className={styles.sectionHeading}><div><h2>Capabilities</h2><p>Escopo previsto para este módulo</p></div><span className={styles.smallTag}>DESIGNED · NOT VERIFIED</span></div>
               <div className={styles.capabilityGrid}>{detail.items.map((item, index) => <div className={styles.capability} key={item}><span className={styles.capabilityIndex}>{String(index + 1).padStart(2, "0")}</span><span>{item}</span><span className={styles.capabilityArrow}>↗</span></div>)}</div>
+              {(active === "testing" || active === "security") && <div className={styles.authFlowTest}><div className={styles.sectionHeading}><div><h2>Authenticated flow · live evidence</h2><p>Executa a bateria autenticada no servidor com a sessão Auth0 atual e mostra o resultado da API.</p></div><span className={styles.smallTag}>NO TOKEN DISPLAY</span></div><AuthorizationProbe /></div>}
               <div className={styles.notice}><span className={styles.noticeIcon}>i</span><div><strong>Implementation note</strong><p>{detail.next}</p></div></div>
               <div className={styles.sectionHeading}><div><h2>Data availability</h2><p>{environment === "All environments" ? "Todos os ambientes" : environment} · fontes de dados</p></div></div>
               <div className={styles.dataState}><div className={styles.dataStateIcon}>⌁</div><div><strong>Nenhuma fonte operacional conectada nesta interface</strong><p>Este painel não simula métricas de produção. A próxima etapa é integrar a API e os provedores autorizados, com evidências de validação.</p></div><button type="button" className={styles.outlineButton} onClick={() => setActive("overview")}>Back to overview</button></div>
