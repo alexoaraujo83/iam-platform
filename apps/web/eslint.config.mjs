@@ -26,7 +26,8 @@ const eslintConfig = defineConfig([
     },
     settings: {
       react: {
-        version: "detect",
+        // Explicit version avoids React auto-detection through removed ESLint 10 context APIs.
+        version: "19.3.1",
       },
     },
     rules: {
