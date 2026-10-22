@@ -22,6 +22,64 @@ function isUuid(value: string | undefined): value is string {
   return !!value && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
+type ExpiredTokenFixture =
+  | { status: "ready"; token: string }
+  | { status: "not_configured"; detail: string };
+
+function getExpiredTokenFixture(): ExpiredTokenFixture {
+  const token = process.env.IAM_DIAGNOSTICS_EXPIRED_ACCESS_TOKEN?.trim();
+  if (!token) {
+    return {
+      status: "not_configured",
+      detail: "Configure uma fixture secreta de access token Auth0 expirado, assinada por uma chave confiável e com issuer/audience correspondentes. O valor nunca é incluído no relatório.",
+    };
+  }
+
+  const parts = token.split(".");
+  if (parts.length !== 3 || !parts[1]) {
+    return {
+      status: "not_configured",
+      detail: "A fixture de token expirado não tem formato JWT válido; substitua-a por uma fixture expirada do Auth0. O valor não é registrado.",
+    };
+  }
+
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as {
+      iss?: unknown;
+      aud?: unknown;
+      exp?: unknown;
+    };
+    const expectedIssuer = process.env.OIDC_ISSUER?.trim();
+    const expectedAudience = process.env.AUTH0_AUDIENCE?.trim();
+    const audiences = typeof payload.aud === "string"
+      ? [payload.aud]
+      : Array.isArray(payload.aud) && payload.aud.every((value) => typeof value === "string")
+        ? payload.aud
+        : [];
+    if (
+      !expectedIssuer ||
+      payload.iss !== expectedIssuer ||
+      !expectedAudience ||
+      !audiences.includes(expectedAudience) ||
+      typeof payload.exp !== "number" ||
+      !Number.isFinite(payload.exp) ||
+      payload.exp * 1000 > Date.now()
+    ) {
+      return {
+        status: "not_configured",
+        detail: "A fixture precisa ser um JWT já expirado, do issuer Auth0 esperado e com a audience da API. O valor não é registrado.",
+      };
+    }
+  } catch {
+    return {
+      status: "not_configured",
+      detail: "Não foi possível validar os claims públicos da fixture de expiração. O valor não é registrado.",
+    };
+  }
+
+  return { status: "ready", token };
+}
+
 export async function POST(request: NextRequest) {
   const origin = request.headers.get("origin");
   if (!origin || origin !== request.nextUrl.origin) {
@@ -181,13 +239,25 @@ export async function POST(request: NextRequest) {
     checks.push({ id: "cross-tenant", label: "Acesso a outro tenant deve ser negado (403)", expectedStatus: 403, status: "not_configured", detail: "Configure IAM_DIAGNOSTICS_OTHER_TENANT_ID com um tenant isolado, pertencente a outra identidade e sem associação para a sessão atual." });
   }
 
-  checks.push({
-    id: "expired-token",
-    label: "Token expirado deve retornar 401",
-    expectedStatus: 401,
-    status: "not_configured",
-    detail: "O teste criptográfico de token expirado é gerado com chaves locais controladas no CI. O E2E de Preview requer uma fixture efêmera específica do ambiente; nenhum JWT manual permanente é lido de variáveis de ambiente."
-  });
+  const expiredTokenFixture = getExpiredTokenFixture();
+  if (expiredTokenFixture.status === "ready") {
+    await probe(
+      "expired-token",
+      "Token Auth0 expirado deve retornar 401",
+      primaryTenantId,
+      `Bearer ${expiredTokenFixture.token}`,
+      401,
+      "invalid_access_token",
+    );
+  } else {
+    checks.push({
+      id: "expired-token",
+      label: "Token Auth0 expirado deve retornar 401",
+      expectedStatus: 401,
+      status: "not_configured",
+      detail: expiredTokenFixture.detail,
+    });
+  }
 
   const reportTimestamp = new Date().toISOString();
   const evidenceChecks = checks.map((check) => ({
