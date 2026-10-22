@@ -5,6 +5,9 @@ DECLARE
   runtime_name text := current_user;
   role_super boolean;
   role_bypass boolean;
+  role_create_role boolean;
+  role_create_db boolean;
+  role_replication boolean;
   bad_rls text;
   bad_owner text;
   can_update_audit boolean;
@@ -18,10 +21,19 @@ DECLARE
   bad_memberships text;
   can_create_public boolean;
 BEGIN
-  SELECT rolsuper, rolbypassrls INTO role_super, role_bypass
+  IF runtime_name <> 'iam_app_runtime' THEN
+    RAISE EXCEPTION 'unexpected_runtime_identity:%', runtime_name;
+  END IF;
+
+  SELECT rolsuper, rolbypassrls, rolcreaterole, rolcreatedb, rolreplication
+    INTO role_super, role_bypass, role_create_role, role_create_db, role_replication
     FROM pg_roles WHERE rolname = runtime_name;
-  IF COALESCE(role_super, true) OR COALESCE(role_bypass, true) THEN
-    RAISE EXCEPTION 'runtime_role_has_privileged_attributes:%', runtime_name;
+  IF COALESCE(role_super, true) OR COALESCE(role_bypass, true)
+     OR COALESCE(role_create_role, true) OR COALESCE(role_create_db, true)
+     OR COALESCE(role_replication, true) THEN
+    RAISE EXCEPTION
+      'runtime_role_has_privileged_attributes:% superuser=% bypassrls=% createrole=% createdb=% replication=%',
+      runtime_name, role_super, role_bypass, role_create_role, role_create_db, role_replication;
   END IF;
 
   SELECT string_agg(r.rolname, ', ' ORDER BY r.rolname) INTO bad_memberships
@@ -76,7 +88,7 @@ BEGIN
       can_insert_global, can_select_global, can_update_global, can_delete_global, can_truncate_global;
   END IF;
 
-  RAISE NOTICE 'PASS runtime_role=% superuser=false bypassrls=false protected_rls=forced protected_owner=false audit_append_only=true global_security_events_insert_only=true',
+  RAISE NOTICE 'PASS runtime_role=% superuser=false bypassrls=false createrole=false createdb=false replication=false protected_rls=forced protected_owner=false audit_append_only=true global_security_events_insert_only=true',
     runtime_name;
 END
 $$;
@@ -84,6 +96,8 @@ $$;
 -- Keep the output from these read-only queries as release evidence.
 SELECT current_database() AS database_name, current_user AS runtime_role,
        current_setting('server_version') AS postgres_version;
+SELECT rolname, rolsuper, rolbypassrls, rolcreaterole, rolcreatedb, rolreplication
+FROM pg_roles WHERE rolname = current_user;
 SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = 'public'

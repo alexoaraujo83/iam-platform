@@ -11,7 +11,8 @@ const enabled =
 
 describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
   const admin = new Pool({ connectionString: process.env.DATABASE_URL });
-  const runtime = new Pool({ connectionString: process.env.IAM_RUNTIME_DATABASE_URL });
+  // One pooled connection makes the rollback/reuse test deterministic.
+  const runtime = new Pool({ connectionString: process.env.IAM_RUNTIME_DATABASE_URL, max: 1 });
   let tenantA = "";
   let tenantB = "";
   let principalA = "";
@@ -264,6 +265,34 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
     } finally {
       client.release();
     }
+  });
+
+  it("clears transaction-local tenant context after rollback before reusing the pooled connection", async () => {
+    await expect(
+      withTenant(tenantA, async (client) => {
+        const visible = await client.query<{ id: string }>("SELECT id FROM tenants");
+        expect(visible.rows).toEqual([{ id: tenantA }]);
+        throw new Error("rollback-reuse-probe");
+      })
+    ).rejects.toThrow("rollback-reuse-probe");
+
+    // max: 1 forces the next query to reuse the same physical connection.
+    const afterRollback = await runtime.query<{
+      current_user: string;
+      tenant_id: string | null;
+      row_count: string;
+    }>(
+      "SELECT current_user, current_setting('app.tenant_id', true) AS tenant_id, (SELECT count(*) FROM tenants)::text AS row_count"
+    );
+    expect(afterRollback.rows[0]?.current_user).toBe("iam_app_runtime");
+    expect(afterRollback.rows[0]?.tenant_id).not.toBe(tenantA);
+    expect(afterRollback.rows[0]?.row_count).toBe("0");
+
+    const tenantBRows = await withTenant(tenantB, async (client) => {
+      const result = await client.query<{ id: string }>("SELECT id FROM tenants");
+      return result.rows;
+    });
+    expect(tenantBRows).toEqual([{ id: tenantB }]);
   });
 
   it("allows only the active tenant's rows in the tenant context", async () => {
