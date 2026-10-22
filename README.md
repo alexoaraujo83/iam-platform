@@ -13,8 +13,7 @@ Base de Gerenciamento de Identidade e Acesso (IAM) independente de provedor para
 
 ## Escopo atual
 
-Este repositório contém contratos compartilhados de domínio, avaliador RBAC de correspondência exata, pacote de verificação OIDC/JWT, migração de esquema PostgreSQL e testes RLS, resolução de associação baseada no banco e um auxiliar que mantém operações do tenant autenticado na mesma transação com escopo RLS. O auxiliar exige um avaliador explícito de autorização e não executa operações protegidas sem a permissão necessária. Existe uma API HTTP inicial em `apps/api`, com endpoint de saúde e rota de contexto do tenant. Há testes HTTP, mas a API ainda não foi implantada nem validada com banco de produção ou provedor de identidade de destino. A interface administrativa ainda está pendente. Um gravador transacional de auditoria, migração append-only e SQL de verificação da implantação foram implementados; ainda falta integrar a auditoria a todos os fluxos sensíveis e verificar a implantação de destino. A API possui limites de HTTP/banco e encerramento gracioso, controles que ainda precisam ser verificados após a implantação.
-
+O repositório contém contratos de domínio independentes de provedor, avaliação RBAC com negação por padrão, verificação OIDC/JWT, esquema PostgreSQL, testes RLS, resolução de associação baseada no banco e controles append-only de auditoria. `apps/api` fornece endpoints de IAM que validam identidade OIDC no servidor e derivam autorização do banco; `apps/web` usa o Auth0 Next.js SDK v4 para sessão, callback e obtenção de access token para a API. Recursos de Control Center, relatórios de evidência e provisionamento idempotente estão distribuídos entre branches e pull requests ainda em Draft. A presença de código em uma branch ou de uma deployment Preview em estado `READY` não significa que o recurso esteja integrado a `main` ou aprovado para Production. A integração ponta a ponta com o provedor real, a cobertura de todos os fluxos sensíveis de auditoria e as verificações operacionais no destino continuam sujeitas às evidências registradas em [Livro mestre de evidências](docs/operations/evidence-ledger.md).
 ## Pré-requisitos
 
 - Node.js 24 (compatível com CI; `engines.node` exige `>=24.0.0`)
@@ -66,3 +65,5 @@ Consulte o [manual de prontidão para produção](docs/operations/production-rea
 ## Governança de entrega
 
 O trabalho é proposto por pull requests. Acompanhe cada item separando descoberta, implementação, teste, integração e operação; não promova o status sem evidências.
+
+Use o [livro mestre de evidências](docs/operations/evidence-ledger.md) como fonte única de verdade para os gates e consulte a [matriz de responsabilidades dos workflows](docs/operations/security-workflows.md). Descrições de PR podem conter histórico; uma conclusão só vale para o SHA exato registrado e precisa ser revalidada quando head, base ou deployment mudar.

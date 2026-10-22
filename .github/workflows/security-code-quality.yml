@@ -1,4 +1,4 @@
-name: Verify Runtime Security
+name: Security and code quality
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ on:
   push:
     branches: [main]
     paths:
-      - ".github/workflows/verify_runtime_security.yml"
+      - ".github/workflows/security-code-quality.yml"
       - "package.json"
       - "pnpm-lock.yaml"
       - "apps/**"
@@ -21,12 +21,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: verify-runtime-security-${{ github.ref }}
+  group: security-code-quality-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  verify-runtime-security:
-    name: Runtime security verification
+  security-code-quality:
+    name: Security and code quality verification
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
