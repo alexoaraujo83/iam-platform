@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createOidcVerifier } from "@iam-platform/identity";
 import { auth0 } from "../../../../lib/auth0";
 
 type Check = {
@@ -26,7 +27,7 @@ type ExpiredTokenFixture =
   | { status: "ready"; token: string }
   | { status: "not_configured"; detail: string };
 
-function getExpiredTokenFixture(): ExpiredTokenFixture {
+async function getExpiredTokenFixture(): Promise<ExpiredTokenFixture> {
   const token = process.env.IAM_DIAGNOSTICS_EXPIRED_ACCESS_TOKEN?.trim();
   if (!token) {
     return {
@@ -77,7 +78,43 @@ function getExpiredTokenFixture(): ExpiredTokenFixture {
     };
   }
 
-  return { status: "ready", token };
+  const issuer = process.env.OIDC_ISSUER?.trim();
+  const audience = process.env.AUTH0_AUDIENCE?.trim();
+  if (!issuer || !audience) {
+    return {
+      status: "not_configured",
+      detail: "OIDC_ISSUER e AUTH0_AUDIENCE são obrigatórios para verificar a fixture antes do probe HTTP. O token não é registrado.",
+    };
+  }
+
+  const configuredAlgorithms = (process.env.OIDC_ALLOWED_ALGORITHMS ?? "RS256")
+    .split(",")
+    .map((algorithm) => algorithm.trim())
+    .filter(Boolean);
+  try {
+    const normalizedIssuer = issuer.endsWith("/") ? issuer : `${issuer}/`;
+    const verifier = createOidcVerifier({
+      issuer,
+      audience,
+      jwksUri: new URL(".well-known/jwks.json", normalizedIssuer).toString(),
+      allowedAlgorithms: configuredAlgorithms,
+    });
+    await verifier(token);
+    return {
+      status: "not_configured",
+      detail: "A fixture passou na verificação de JWT e não está expirada; use um access token Auth0 que esteja expirado. O token não é registrado.",
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === "JWTExpired") {
+      // The shared verifier raises JWTExpired only after validating signature,
+      // issuer, audience, required claims and the configured algorithm allowlist.
+      return { status: "ready", token };
+    }
+    return {
+      status: "not_configured",
+      detail: "A fixture não passou na verificação criptográfica OIDC com JWKS confiável. Use um access token Auth0 genuíno expirado; o token não é registrado.",
+    };
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -239,7 +276,7 @@ export async function POST(request: NextRequest) {
     checks.push({ id: "cross-tenant", label: "Acesso a outro tenant deve ser negado (403)", expectedStatus: 403, status: "not_configured", detail: "Configure IAM_DIAGNOSTICS_OTHER_TENANT_ID com um tenant isolado, pertencente a outra identidade e sem associação para a sessão atual." });
   }
 
-  const expiredTokenFixture = getExpiredTokenFixture();
+  const expiredTokenFixture = await getExpiredTokenFixture();
   if (expiredTokenFixture.status === "ready") {
     await probe(
       "expired-token",
