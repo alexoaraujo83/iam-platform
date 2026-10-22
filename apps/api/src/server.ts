@@ -1,10 +1,11 @@
 import { Pool } from "pg";
 import { authorize } from "@iam-platform/authorization";
-import { appendPreAuthSecurityEvent, withAuthenticatedTenant } from "@iam-platform/database";
+import { appendPreAuthSecurityEvent, provisionExternalIdentity, withAuthenticatedTenant } from "@iam-platform/database";
 import { createOidcVerifier } from "@iam-platform/identity";
 import type { IdentityProviderConfig } from "@iam-platform/contracts";
 import { createApiServer, type RequiredTenantPermission } from "./app.js";
 import { normalizeOidcVerificationError } from "./oidc-error.js";
+import { assertIdentityProvisionerDatabaseTarget } from "./identity-provisioner-target.js";
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -31,8 +32,14 @@ const verifyAccessToken = async (token: string) => {
   }
 };
 
+const runtimeDatabaseUrl = requiredEnv("DATABASE_URL");
+const provisionerDatabaseUrl = process.env.IDENTITY_PROVISIONER_DATABASE_URL?.trim();
+if (provisionerDatabaseUrl && provisionerDatabaseUrl === runtimeDatabaseUrl) {
+  throw new Error("identity_provisioner_database_url_must_be_separate");
+}
+
 const pool = new Pool({
-  connectionString: requiredEnv("DATABASE_URL"),
+  connectionString: runtimeDatabaseUrl,
   max: positiveIntegerEnv("DATABASE_POOL_MAX", 10),
   connectionTimeoutMillis: positiveIntegerEnv("DATABASE_CONNECT_TIMEOUT_MS", 5_000),
   idleTimeoutMillis: positiveIntegerEnv("DATABASE_IDLE_TIMEOUT_MS", 30_000),
@@ -41,6 +48,19 @@ const pool = new Pool({
 pool.on("error", () => {
   // Do not log connection strings or driver errors that may contain infrastructure details.
   console.error(JSON.stringify({ level: "error", event: "database_idle_client_error" }));
+});
+
+const identityProvisionerPool = provisionerDatabaseUrl
+  ? new Pool({
+      connectionString: provisionerDatabaseUrl,
+      max: positiveIntegerEnv("IDENTITY_PROVISIONER_POOL_MAX", 2),
+      connectionTimeoutMillis: positiveIntegerEnv("DATABASE_CONNECT_TIMEOUT_MS", 5_000),
+      idleTimeoutMillis: positiveIntegerEnv("DATABASE_IDLE_TIMEOUT_MS", 30_000),
+      application_name: "iam-platform-identity-provisioner"
+    })
+  : undefined;
+identityProvisionerPool?.on("error", () => {
+  console.error(JSON.stringify({ level: "error", event: "identity_provisioner_idle_client_error" }));
 });
 
 function positiveIntegerEnv(name: string, fallback: number): number {
@@ -95,6 +115,39 @@ const server = createApiServer(
   },
   async (event) => {
     await appendPreAuthSecurityEvent(pool, event);
+  },
+  {
+    provisionIdentity: async (accessToken) => {
+      if (!identityProvisionerPool) {
+        throw new Error("missing_required_configuration:IDENTITY_PROVISIONER_DATABASE_URL");
+      }
+      const identity = await verifyAccessToken(accessToken);
+      const expectedBranchId = requiredEnv("IAM_EXPECTED_NEON_BRANCH_ID");
+      const expectedProjectId = requiredEnv("IAM_EXPECTED_NEON_PROJECT_ID");
+      const roleResult = await identityProvisionerPool.query<{
+        current_user: string;
+        current_database: string;
+        branch_id: string | null;
+        project_id: string | null;
+      }>(
+        `SELECT current_user,
+                current_database(),
+                current_setting('neon.branch_id', true) AS branch_id,
+                current_setting('neon.project_id', true) AS project_id`
+      );
+      const row = roleResult.rows[0];
+      if (!row) throw new Error("identity_provisioner_database_identity_unavailable");
+      assertIdentityProvisionerDatabaseTarget({
+        roleName: row.current_user,
+        databaseName: row.current_database,
+        branchId: row.branch_id,
+        projectId: row.project_id
+      }, {
+        branchId: expectedBranchId,
+        projectId: expectedProjectId
+      });
+      await provisionExternalIdentity(identityProvisionerPool, identity);
+    }
   }
 );
 
@@ -128,7 +181,7 @@ async function shutdown(signal: "SIGTERM" | "SIGINT"): Promise<void> {
       // Stop idle keep-alive sockets immediately; in-flight requests get the grace period.
       server.closeIdleConnections();
       await closed;
-      await pool.end();
+      await Promise.all([pool.end(), ...(identityProvisionerPool ? [identityProvisionerPool.end()] : [])]);
       console.info(JSON.stringify({ level: "info", event: "shutdown_completed" }));
     } catch {
       console.error(JSON.stringify({ level: "error", event: "shutdown_failed" }));

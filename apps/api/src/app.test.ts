@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
-import { createApiServer, createPreAuthAuditLimiter, type CheckReadiness, type RecordPreAuthSecurityEvent, type ResolveTenantContext, type TenantContextResponse } from "./app.js";
+import { createApiServer, createPreAuthAuditLimiter, type CheckReadiness, type ProvisionIdentity, type RecordPreAuthSecurityEvent, type ResolveTenantContext, type TenantContextResponse } from "./app.js";
 
 const context: TenantContextResponse = {
   tenantId: "11111111-1111-4111-8111-111111111111",
@@ -15,16 +15,24 @@ async function requestApi(
   path: string,
   headers?: Record<string, string>,
   checkReadiness: CheckReadiness = async () => true,
-  recordSecurityEvent: RecordPreAuthSecurityEvent = async () => undefined
+  recordSecurityEvent: RecordPreAuthSecurityEvent = async () => undefined,
+  provisionIdentity?: ProvisionIdentity,
+  method = "GET"
 ): Promise<Response> {
-  const server = createApiServer(resolver, checkReadiness, recordSecurityEvent);
+  const server = createApiServer(
+    resolver,
+    checkReadiness,
+    recordSecurityEvent,
+    provisionIdentity ? { provisionIdentity } : {}
+  );
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as AddressInfo;
-  return fetch(`http://127.0.0.1:${address.port}${path}`, headers ? { headers } : {});
+  return fetch(`http://127.0.0.1:${address.port}${path}`, { ...(headers ? { headers } : {}), method });
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(servers.splice(0).map((server) =>
     new Promise<void>((resolve, reject) =>
       server.close((error) => error ? reject(error) : resolve())
@@ -349,6 +357,125 @@ describe("IAM HTTP API", () => {
 
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: "active_membership_required" });
+  });
+
+  it("fails closed and audits when the server-side bootstrap flag is disabled", async () => {
+    vi.stubEnv("IAM_IDENTITY_BOOTSTRAP_ENABLED", "false");
+    const provisionIdentity = vi.fn<ProvisionIdentity>();
+    const recordSecurityEvent = vi.fn<RecordPreAuthSecurityEvent>().mockResolvedValue(undefined);
+    const response = await requestApi(
+      vi.fn<ResolveTenantContext>(),
+      "/v1/identity/bootstrap",
+      { authorization: "Bearer verified-access-token" },
+      async () => true,
+      recordSecurityEvent,
+      provisionIdentity,
+      "POST"
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "identity_provisioning_not_enabled" });
+    expect(provisionIdentity).not.toHaveBeenCalled();
+    expect(recordSecurityEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: "identity.provisioning_failed",
+      outcome: "failure",
+      metadata: { reason: "not_enabled" }
+    }));
+  });
+
+  it("provisions a verified identity through the explicit bootstrap endpoint", async () => {
+    vi.stubEnv("IAM_IDENTITY_BOOTSTRAP_ENABLED", "true");
+    const provisionIdentity = vi.fn<ProvisionIdentity>().mockResolvedValue(undefined);
+    const resolver = vi.fn<ResolveTenantContext>();
+    const recordSecurityEvent = vi.fn<RecordPreAuthSecurityEvent>().mockResolvedValue(undefined);
+    const response = await requestApi(
+      resolver,
+      "/v1/identity/bootstrap",
+      { authorization: "Bearer verified-access-token" },
+      async () => true,
+      recordSecurityEvent,
+      provisionIdentity,
+      "POST"
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "identity_provisioned" });
+    expect(provisionIdentity).toHaveBeenCalledTimes(1);
+    expect(provisionIdentity).toHaveBeenCalledWith("verified-access-token");
+    expect(resolver).not.toHaveBeenCalled();
+    expect(recordSecurityEvent).not.toHaveBeenCalled();
+  });
+
+  it("denies bootstrap without a bearer token and records a sanitized failure", async () => {
+    const provisionIdentity = vi.fn<ProvisionIdentity>();
+    const recordSecurityEvent = vi.fn<RecordPreAuthSecurityEvent>().mockResolvedValue(undefined);
+    const response = await requestApi(
+      vi.fn<ResolveTenantContext>(),
+      "/v1/identity/bootstrap",
+      {},
+      async () => true,
+      recordSecurityEvent,
+      provisionIdentity,
+      "POST"
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "invalid_or_missing_bearer_token" });
+    expect(provisionIdentity).not.toHaveBeenCalled();
+    expect(recordSecurityEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: "security.authn_failed",
+      outcome: "failure",
+      metadata: { reason: "missing_or_invalid_bearer" }
+    }));
+  });
+
+  it("fails closed and audits bootstrap when the provisioner pool is not configured", async () => {
+    vi.stubEnv("IAM_IDENTITY_BOOTSTRAP_ENABLED", "true");
+    const recordSecurityEvent = vi.fn<RecordPreAuthSecurityEvent>().mockResolvedValue(undefined);
+    const response = await requestApi(
+      vi.fn<ResolveTenantContext>(),
+      "/v1/identity/bootstrap",
+      { authorization: "Bearer verified-access-token" },
+      async () => true,
+      recordSecurityEvent,
+      undefined,
+      "POST"
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "identity_provisioning_not_configured" });
+    expect(recordSecurityEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: "identity.provisioning_failed",
+      outcome: "failure",
+      metadata: { reason: "not_configured" }
+    }));
+  });
+
+  it("does not leak database details when bootstrap provisioning fails", async () => {
+    vi.stubEnv("IAM_IDENTITY_BOOTSTRAP_ENABLED", "true");
+    const provisionIdentity = vi.fn<ProvisionIdentity>().mockRejectedValue(
+      new Error("database_unavailable:password-do-not-leak")
+    );
+    const recordSecurityEvent = vi.fn<RecordPreAuthSecurityEvent>().mockResolvedValue(undefined);
+    const response = await requestApi(
+      vi.fn<ResolveTenantContext>(),
+      "/v1/identity/bootstrap",
+      { authorization: "Bearer verified-access-token" },
+      async () => true,
+      recordSecurityEvent,
+      provisionIdentity,
+      "POST"
+    );
+
+    expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body).toEqual({ error: "identity_provisioning_unavailable" });
+    expect(JSON.stringify(body)).not.toContain("password-do-not-leak");
+    expect(recordSecurityEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: "identity.provisioning_failed",
+      outcome: "failure",
+      metadata: { reason: "database_unavailable" }
+    }));
   });
 
   it("returns 404 for unknown routes", async () => {

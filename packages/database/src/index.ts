@@ -8,4 +8,6 @@ export type {
   VerifyAccessToken
 } from "./authenticated-tenant.js";
 export { resolveActiveMembership } from "./membership-resolution.js";
+export { provisionExternalIdentity } from "./provision-external-identity.js";
+export type { ProvisionedIdentity } from "./provision-external-identity.js";
 export type { ResolvedMembership, VerifiedIdentity } from "./membership-resolution.js";

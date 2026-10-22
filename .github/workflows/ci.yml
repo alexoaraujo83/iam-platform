@@ -38,6 +38,25 @@ jobs:
       APP_BASE_URL: http://localhost:3000
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Scan full Git history for secrets
+        # Exact historical fingerprints are documented in docs/security/gitleaks-history-allowlist.md.
+        shell: bash
+        run: |
+          set +e
+          docker run --rm \
+            -v "$PWD:/repo" \
+            zricethezav/gitleaks:v8.24.2 \
+            git /repo --redact --no-banner --report-format json \
+            --report-path /repo/.gitleaks-history-report.json --exit-code=1
+          scan_status=$?
+          if [[ -f .gitleaks-history-report.json ]]; then
+            echo "Gitleaks finding metadata (secret values and matched text are excluded):"
+            jq 'map({RuleID, File, Commit, StartLine, EndLine, Description, Fingerprint})' .gitleaks-history-report.json
+            rm -f .gitleaks-history-report.json
+          fi
+          exit "$scan_status"
       - name: Scan checked-out source for secrets
         run: >-
           docker run --rm
@@ -63,6 +82,9 @@ jobs:
       - name: Install locked dependencies
         id: frozen_install
         run: pnpm install --frozen-lockfile
+      - name: Test Auth0 identity provisioning against disposable PostgreSQL
+        if: ${{ !cancelled() && steps.frozen_install.outcome == 'success' }}
+        run: bash packages/database/scripts/test-auth0-identity-provisioning.sh
       - name: Audit locked dependencies for high and critical vulnerabilities
         id: dependency_audit
         run: pnpm audit --audit-level high

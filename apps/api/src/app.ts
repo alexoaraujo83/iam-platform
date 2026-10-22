@@ -28,7 +28,19 @@ export type ResolveTenantContext = (
   requiredPermission?: RequiredTenantPermission
 ) => Promise<TenantContextResponse | null>;
 export type CheckReadiness = () => Promise<boolean>;
+export interface DatabaseRuntimeIdentity {
+  readonly roleName: string | null;
+  readonly databaseName: string | null;
+  readonly branchId: string | null;
+  readonly projectId: string | null;
+}
+export type GetDatabaseRuntimeIdentity = () => Promise<DatabaseRuntimeIdentity>;
 export type RecordPreAuthSecurityEvent = (event: PreAuthSecurityEvent) => Promise<void>;
+export type ProvisionIdentity = (accessToken: string) => Promise<void>;
+export interface ApiHandlerOptions {
+  readonly getDatabaseRuntimeIdentity?: GetDatabaseRuntimeIdentity;
+  readonly provisionIdentity?: ProvisionIdentity;
+}
 export type ApiRequestHandler = (request: IncomingMessage, response: ServerResponse) => void;
 
 const CONTEXT_PERMISSION: RequiredTenantPermission = { resource: "iam", action: "context.read" };
@@ -102,10 +114,12 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
 export function createApiHandler(
   resolveTenantContext: ResolveTenantContext,
   checkReadiness: CheckReadiness,
-  recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent
+  recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent,
+  options: ApiHandlerOptions = {}
 ): ApiRequestHandler {
   // Bound unauthenticated write amplification per socket peer. Do not trust
   // X-Forwarded-For here; it is only safe behind a separately trusted proxy.
+  const shouldProvisionIdentity = createPreAuthAuditLimiter(4096, 60_000, 10);
   const shouldRecordAudit = createPreAuthAuditLimiter(4096, 60_000, 10, (reason) => {
     // Aggregate limiter pressure into at most one warning per window; never log peer identifiers.
     console.warn(JSON.stringify({
@@ -153,6 +167,94 @@ export function createApiHandler(
         sendJson(response, ready ? 200 : 503, { status: ready ? "ready" : "not_ready" });
       } catch {
         sendJson(response, 503, { status: "not_ready" });
+      }
+      return;
+    }
+
+    if (request.method === "POST" && routePath === "/v1/identity/bootstrap") {
+      const accessToken = extractBearerToken(request.headers.authorization);
+      if (!accessToken) {
+        const audited = await recordAuthFailure(request, "missing_or_invalid_bearer");
+        sendJson(response, audited ? 401 : 503, {
+          error: audited ? "invalid_or_missing_bearer_token" : "security_audit_unavailable"
+        });
+        return;
+      }
+
+      if (!shouldProvisionIdentity(request.socket.remoteAddress ?? "unknown")) {
+        sendJson(response, 429, { error: "identity_bootstrap_rate_limited" });
+        return;
+      }
+
+      if (process.env.IAM_IDENTITY_BOOTSTRAP_ENABLED !== "true") {
+        try {
+          await recordPreAuthSecurityEvent({
+            action: "identity.provisioning_failed",
+            outcome: "failure",
+            correlationId: randomUUID(),
+            metadata: { reason: "not_enabled" }
+          });
+        } catch {
+          sendJson(response, 503, { error: "security_audit_unavailable" });
+          return;
+        }
+        sendJson(response, 503, { error: "identity_provisioning_not_enabled" });
+        return;
+      }
+
+      if (!options.provisionIdentity) {
+        try {
+          await recordPreAuthSecurityEvent({
+            action: "identity.provisioning_failed",
+            outcome: "failure",
+            correlationId: randomUUID(),
+            metadata: { reason: "not_configured" }
+          });
+        } catch {
+          sendJson(response, 503, { error: "security_audit_unavailable" });
+          return;
+        }
+        sendJson(response, 503, { error: "identity_provisioning_not_configured" });
+        return;
+      }
+
+      try {
+        await options.provisionIdentity(accessToken);
+        sendJson(response, 200, { status: "identity_provisioned" });
+      } catch (error) {
+        const errorCode = error instanceof Error ? error.message.split(":", 1)[0] : undefined;
+        if (errorCode === "invalid_access_token") {
+          const audited = await recordAuthFailure(request, "invalid_access_token");
+          sendJson(response, audited ? 401 : 503, {
+            error: audited ? "invalid_access_token" : "security_audit_unavailable"
+          });
+          return;
+        }
+
+        const reason = errorCode === "identity_provider_unavailable"
+          ? "identity_provider_unavailable"
+          : errorCode?.startsWith("missing_required_configuration")
+            ? "not_configured"
+            : "database_unavailable";
+        try {
+          await recordPreAuthSecurityEvent({
+            action: "identity.provisioning_failed",
+            outcome: "failure",
+            correlationId: randomUUID(),
+            metadata: { reason }
+          });
+        } catch {
+          sendJson(response, 503, { error: "security_audit_unavailable" });
+          return;
+        }
+
+        sendJson(response, 503, {
+          error: reason === "not_configured"
+            ? "identity_provisioning_not_configured"
+            : reason === "identity_provider_unavailable"
+              ? "identity_provider_unavailable"
+              : "identity_provisioning_unavailable"
+        });
       }
       return;
     }
@@ -257,7 +359,8 @@ export function createApiHandler(
 export function createApiServer(
   resolveTenantContext: ResolveTenantContext,
   checkReadiness: CheckReadiness,
-  recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent
+  recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent,
+  options: ApiHandlerOptions = {}
 ): Server {
-  return createServer(createApiHandler(resolveTenantContext, checkReadiness, recordPreAuthSecurityEvent));
+  return createServer(createApiHandler(resolveTenantContext, checkReadiness, recordPreAuthSecurityEvent, options));
 }
