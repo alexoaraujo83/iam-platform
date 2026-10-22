@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createOidcVerifier } from "@iam-platform/identity";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import { auth0 } from "../../../../lib/auth0";
 
 type Check = {
@@ -93,21 +93,21 @@ async function getExpiredTokenFixture(): Promise<ExpiredTokenFixture> {
     .filter(Boolean);
   try {
     const normalizedIssuer = issuer.endsWith("/") ? issuer : `${issuer}/`;
-    const verifier = createOidcVerifier({
+    const jwks = createRemoteJWKSet(new URL(".well-known/jwks.json", normalizedIssuer));
+    await jwtVerify(token, jwks, {
+      algorithms: configuredAlgorithms,
       issuer,
       audience,
-      jwksUri: new URL(".well-known/jwks.json", normalizedIssuer).toString(),
-      allowedAlgorithms: configuredAlgorithms,
+      requiredClaims: ["iss", "sub", "aud", "exp", "iat"],
     });
-    await verifier(token);
     return {
       status: "not_configured",
       detail: "A fixture passou na verificação de JWT e não está expirada; use um access token Auth0 que esteja expirado. O token não é registrado.",
     };
   } catch (error) {
     if (error instanceof Error && error.name === "JWTExpired") {
-      // The shared verifier raises JWTExpired only after validating signature,
-      // issuer, audience, required claims and the configured algorithm allowlist.
+      // jose raises JWTExpired only after validating the signature, issuer,
+      // audience, required claims and configured algorithm allowlist.
       return { status: "ready", token };
     }
     return {
