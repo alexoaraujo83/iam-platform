@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AddressInfo } from "node:net";
-import { createApiServer, createPreAuthAuditLimiter, type CheckReadiness, type RecordPreAuthSecurityEvent, type ResolveTenantContext, type TenantContextResponse } from "./app.js";
+import { createApiServer, createPreAuthAuditLimiter, type CheckReadiness, type GetDatabaseRuntimeIdentity, type RecordPreAuthSecurityEvent, type ResolveTenantContext, type TenantContextResponse } from "./app.js";
 
 const context: TenantContextResponse = {
   tenantId: "11111111-1111-4111-8111-111111111111",
@@ -15,9 +15,17 @@ async function requestApi(
   path: string,
   headers?: Record<string, string>,
   checkReadiness: CheckReadiness = async () => true,
-  recordSecurityEvent: RecordPreAuthSecurityEvent = async () => undefined
+  recordSecurityEvent: RecordPreAuthSecurityEvent = async () => undefined,
+  getDatabaseRuntimeIdentity: GetDatabaseRuntimeIdentity = async () => ({
+    roleName: "iam_app_runtime",
+    databaseName: "iam_platform",
+    branchId: "br-test-12345678",
+    projectId: "test-project-12345678"
+  })
 ): Promise<Response> {
-  const server = createApiServer(resolver, checkReadiness, recordSecurityEvent);
+  if (!process.env.IAM_EXPECTED_NEON_BRANCH_ID) vi.stubEnv("IAM_EXPECTED_NEON_BRANCH_ID", "br-test-12345678");
+  if (!process.env.IAM_EXPECTED_NEON_PROJECT_ID) vi.stubEnv("IAM_EXPECTED_NEON_PROJECT_ID", "test-project-12345678");
+  const server = createApiServer(resolver, checkReadiness, recordSecurityEvent, { getDatabaseRuntimeIdentity });
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address() as AddressInfo;
@@ -25,6 +33,7 @@ async function requestApi(
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(servers.splice(0).map((server) =>
     new Promise<void>((resolve, reject) =>
       server.close((error) => error ? reject(error) : resolve())
@@ -349,6 +358,202 @@ describe("IAM HTTP API", () => {
 
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: "active_membership_required" });
+  });
+
+  it("returns permission-gated runtime diagnostics with explicit source and freshness metadata", async () => {
+    const resolver = vi.fn<ResolveTenantContext>().mockResolvedValue({
+      ...context,
+      permissions: [{ resource: "iam", action: "control_center.read" }]
+    });
+    const readiness = vi.fn<CheckReadiness>().mockResolvedValue(true);
+    const response = await requestApi(
+      resolver,
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center/runtime",
+      { authorization: "Bearer valid-token", "x-correlation-id": "runtime-diag-test" },
+      readiness
+    );
+
+    expect(response.status).toBe(200);
+    const snapshot = await response.json();
+    expect(snapshot).toMatchObject({
+      environment: "unknown",
+      overallStatus: "unknown",
+      correlationId: "runtime-diag-test",
+      deploymentId: null,
+      deploymentUrl: null
+    });
+    expect(snapshot.commitSha === null || /^[0-9a-f]{7,64}$/i.test(snapshot.commitSha)).toBe(true);
+    expect(snapshot.checks).toHaveLength(4);
+    expect(snapshot.checks[0]).toMatchObject({
+      id: "api.runtime",
+      status: "pass",
+      source: { system: "iam-platform-api", reference: null }
+    });
+    expect(snapshot.checks[1]).toMatchObject({
+      id: "database.readiness",
+      status: "pass",
+      source: { system: "postgresql-readiness", reference: null }
+    });
+    expect(snapshot.databaseIdentity).toMatchObject({
+      roleName: "iam_app_runtime",
+      databaseName: "iam_platform",
+      branchId: "br-test-12345678",
+      projectId: "test-project-12345678",
+      expectedBranchId: "br-test-12345678",
+      expectedProjectId: "test-project-12345678",
+      verified: true
+    });
+    expect(snapshot.checks[2]).toMatchObject({
+      id: "database.identity",
+      status: "pass",
+      source: { system: "neon-runtime-identity", reference: "br-test-12345678" }
+    });
+    expect(snapshot.checks[3]).toMatchObject({
+      id: "deployment.metadata",
+      status: "unknown",
+      source: { system: "deployment-platform", reference: snapshot.commitSha }
+    });
+    expect(snapshot.checks.every((check: { checkedAt: string; validUntil: string; correlationId: string }) =>
+      Date.parse(check.validUntil) > Date.parse(check.checkedAt) && check.correlationId === "runtime-diag-test"
+    )).toBe(true);
+    expect(resolver).toHaveBeenCalledWith(
+      "valid-token",
+      "11111111-1111-4111-8111-111111111111",
+      { resource: "iam", action: "control_center.read" }
+    );
+    expect(readiness).toHaveBeenCalledOnce();
+  });
+
+  it("reports deployment metadata as verified only when environment and commit are valid", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("VERCEL_GIT_COMMIT_SHA", "b".repeat(40));
+    vi.stubEnv("VERCEL_DEPLOYMENT_ID", "dpl_iam_api_123");
+    vi.stubEnv("VERCEL_URL", "iam-api-example.vercel.app");
+
+    const resolver = vi.fn<ResolveTenantContext>().mockResolvedValue({
+      ...context,
+      permissions: [{ resource: "iam", action: "control_center.read" }]
+    });
+    const response = await requestApi(
+      resolver,
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center/runtime",
+      { authorization: "Bearer valid-token" }
+    );
+
+    expect(response.status).toBe(200);
+    const snapshot = await response.json();
+    expect(snapshot).toMatchObject({
+      environment: "production",
+      commitSha: "b".repeat(40),
+      deploymentId: "dpl_iam_api_123",
+      deploymentUrl: "https://iam-api-example.vercel.app",
+      overallStatus: "pass"
+    });
+    expect(snapshot.checks).toContainEqual(expect.objectContaining({
+      id: "deployment.metadata",
+      status: "pass",
+      source: expect.objectContaining({ system: "deployment-platform", reference: "b".repeat(40) })
+    }));
+  });
+
+  it("rejects malformed deployment metadata instead of echoing it", async () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("VERCEL_GIT_COMMIT_SHA", "secret-looking-value");
+    vi.stubEnv("VERCEL_DEPLOYMENT_ID", "bad value");
+    vi.stubEnv("VERCEL_URL", "https://example.com/path?token=not-for-logs");
+
+    const response = await requestApi(
+      vi.fn<ResolveTenantContext>().mockResolvedValue({
+        ...context,
+        permissions: [{ resource: "iam", action: "control_center.read" }]
+      }),
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center/runtime",
+      { authorization: "Bearer valid-token" }
+    );
+
+    expect(response.status).toBe(200);
+    const snapshot = await response.json();
+    expect(snapshot).toMatchObject({
+      environment: "production",
+      commitSha: null,
+      deploymentId: null,
+      deploymentUrl: null,
+      overallStatus: "unknown"
+    });
+    expect(JSON.stringify(snapshot)).not.toContain("secret-looking-value");
+    expect(JSON.stringify(snapshot)).not.toContain("not-for-logs");
+  });
+
+  it("marks database diagnostics as failed and returns 503 when readiness fails", async () => {
+    const response = await requestApi(
+      vi.fn<ResolveTenantContext>().mockResolvedValue(context),
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center/runtime",
+      { authorization: "Bearer valid-token" },
+      async () => false
+    );
+
+    expect(response.status).toBe(503);
+    const snapshot = await response.json();
+    expect(snapshot.overallStatus).toBe("fail");
+    expect(snapshot.checks).toContainEqual(expect.objectContaining({
+      id: "database.readiness",
+      status: "fail",
+      severity: "critical"
+    }));
+  });
+
+  it("fails closed when the live database role or Neon branch differs from expected", async () => {
+    vi.stubEnv("IAM_EXPECTED_NEON_BRANCH_ID", "br-expected-12345678");
+    vi.stubEnv("IAM_EXPECTED_NEON_PROJECT_ID", "expected-project-12345678");
+    const response = await requestApi(
+      vi.fn<ResolveTenantContext>().mockResolvedValue({
+        ...context,
+        permissions: [{ resource: "iam", action: "control_center.read" }]
+      }),
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center/runtime",
+      { authorization: "Bearer valid-token" },
+      async () => true,
+      async () => undefined,
+      async () => ({
+        roleName: "iam_runtime",
+        databaseName: "iam_platform",
+        branchId: "br-actual-12345678",
+        projectId: "expected-project-12345678"
+      })
+    );
+
+    expect(response.status).toBe(503);
+    const snapshot = await response.json();
+    expect(snapshot.databaseIdentity).toMatchObject({
+      roleName: "iam_runtime",
+      branchId: "br-actual-12345678",
+      expectedBranchId: "br-expected-12345678",
+      verified: false
+    });
+    expect(snapshot.checks).toContainEqual(expect.objectContaining({
+      id: "database.identity",
+      status: "fail",
+      severity: "critical"
+    }));
+    expect(snapshot.overallStatus).toBe("fail");
+    expect(JSON.stringify(snapshot)).not.toContain("DATABASE_URL");
+  });
+
+  it("denies runtime diagnostics without the control-center permission", async () => {
+    const resolver = vi.fn<ResolveTenantContext>().mockRejectedValue(new Error("authorization_denied"));
+    const response = await requestApi(
+      resolver,
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center/runtime",
+      { authorization: "Bearer valid-token" }
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "permission_denied" });
+    expect(resolver).toHaveBeenCalledWith(
+      "valid-token",
+      "11111111-1111-4111-8111-111111111111",
+      { resource: "iam", action: "control_center.read" }
+    );
   });
 
   it("returns 404 for unknown routes", async () => {

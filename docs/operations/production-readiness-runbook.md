@@ -45,6 +45,18 @@ Não executar sondagens destrutivas em produção. Para destino semelhante à pr
 
 Testes PostgreSQL no CI são necessários, mas não constituem evidência da implantação.
 
+### Evidência de verificação runtime (2026-10-20)
+
+- Workflow: [Verify runtime database security #6](https://github.com/alexoaraujo83/iam-platform/actions/runs/39493932141)
+- Commit verificado: `b5aed6d277c4743d166325cbb4fe0197eb60e4e2`
+- Resultado do workflow: `success`
+- Login usado pela conexão do workflow no ambiente GitHub `production`: `iam_app_runtime`
+- Banco/versão reportados: `iam_platform` / PostgreSQL `17.11`
+- Asserções reportadas: sem superuser ou `BYPASSRLS`; RLS + FORCE RLS nas 10 tabelas protegidas; nenhuma propriedade dessas tabelas pelo runtime; auditoria tenant append-only; `global_security_events` com INSERT somente.
+- A URL do workflow é a referência da evidência; o valor do segredo `NEON_DATABASE_URL` não deve ser copiado para documentos, artefatos ou logs.
+
+**Limite de escopo:** este resultado comprova a conexão utilizada por essa execução do workflow. Não prova automaticamente que cada instância do Vercel usa a mesma role/branch, nem resolve o risco da role legada `iam_runtime` no cluster. Manter o release bloqueado para esses pontos até existir evidência correspondente e uma mudança revisada para eliminar a role privilegiada do caminho de execução.
+
 ## 3. Controles de auditoria durável
 
 O repositório inclui `packages/database/src/audit.ts`, migrações append-only (`0002_durable_audit_controls.sql` e `0004_pre_auth_security_events.sql`) e testes unitários/de integração. Antes da produção, integrar `appendAuditEvent` a cada fluxo sensível e persistir eventos relevantes à segurança (resultados de autenticação, mudanças de associação, negações de permissão, administração privilegiada, negações entre tenants e alterações de configuração) em armazenamento PostgreSQL append-only e transacionalmente consistente.
