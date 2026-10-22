@@ -1,0 +1,62 @@
+name: Verify runtime database security
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Neon environment to audit (uses that GitHub Environment's secrets and approvals)
+        required: true
+        type: choice
+        options:
+          - development
+          - preview
+          - production
+        default: development
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-runtime-security-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  verify-runtime-security:
+    name: Verify runtime security (${{ inputs.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: neon-${{ inputs.target }}
+    env:
+      NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+      PGSSLMODE: require
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Validate database URL is configured
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${NEON_DATABASE_URL:-}" ]]; then
+            echo "::error::Secret NEON_DATABASE_URL is not configured in the selected GitHub Environment."
+            exit 1
+          fi
+
+      - name: Run read-only runtime security assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$NEON_DATABASE_URL" \
+            -X \
+            --set=ON_ERROR_STOP=1 \
+            --file=packages/database/migrations/verify_runtime_security.sql
+
+      - name: Report audit result
+        if: success()
+        run: echo "Runtime database security assertions passed for the selected Neon environment."

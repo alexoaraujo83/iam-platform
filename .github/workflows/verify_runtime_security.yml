@@ -1,0 +1,74 @@
+name: Verify Runtime Security
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_tests:
+        description: "Run application quality checks (typecheck, lint, tests, build)"
+        required: true
+        type: boolean
+        default: true
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify_runtime_security.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "apps/**"
+      - "packages/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-runtime-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-runtime-security:
+    name: Runtime security verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Scan repository for secrets
+        run: |
+          docker run --rm \
+            -v "$PWD:/repo" \
+            zricethezav/gitleaks:v8.24.2 \
+            dir /repo --redact --no-banner --exit-code=1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install pinned pnpm
+        run: npm install --global pnpm@12.12.1
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit dependencies for high and critical vulnerabilities
+        run: pnpm audit --audit-level high
+
+      - name: Typecheck
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}
+        run: pnpm typecheck
+
+      - name: Lint
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}
+        run: pnpm lint
+
+      - name: Run tests
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}
+        run: pnpm test
+
+      - name: Build
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}
+        run: pnpm build

@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: iam_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d iam_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/iam_test
+      IAM_RUNTIME_DATABASE_URL: postgres://iam_app_runtime:runtime-test-only@localhost:5432/iam_test
+      IAM_DATABASE_INTEGRATION: "1"
+      # Disposable values let Next.js build/import the SDK in CI; never use them in deployments.
+      AUTH0_DOMAIN: example.us.auth0.com
+      AUTH0_CLIENT_ID: ci-only-client-id
+
+      APP_BASE_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v7
+      - name: Scan checked-out source for secrets
+        run: >-
+          docker run --rm
+          -v "$PWD:/repo"
+          zricethezav/gitleaks:v8.24.2
+          dir /repo --redact --no-banner --exit-code=1
+      - name: Generate disposable CI auth secrets
+        shell: bash
+        run: |
+          client_secret="$(openssl rand -hex 32)"
+          auth0_secret="$(openssl rand -hex 32)"
+          echo "::add-mask::$client_secret"
+          echo "::add-mask::$auth0_secret"
+          echo "AUTH0_CLIENT_SECRET=$client_secret" >> "$GITHUB_ENV"
+          echo "AUTH0_SECRET=$auth0_secret" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      # Install the pinned pnpm CLI directly to avoid the runner's legacy PNPM_HOME layout.
+      - run: npm install --global pnpm@12.12.1
+      - run: pnpm --version
+      - name: Install locked dependencies
+        id: frozen_install
+        run: pnpm install --frozen-lockfile
+      - name: Audit locked dependencies for high and critical vulnerabilities
+        id: dependency_audit
+        run: pnpm audit --audit-level high
+      # Keep collecting independent quality evidence when the audit gate fails.
+      # The job remains failed, so this does not bypass the security gate.
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.frozen_install.outcome == 'success' }}
+        run: pnpm typecheck
+      - name: Lint
+        if: ${{ !cancelled() && steps.frozen_install.outcome == 'success' }}
+        run: pnpm lint
+      - name: Build
+        if: ${{ !cancelled() && steps.frozen_install.outcome == 'success' }}
+        run: pnpm build
+      - name: Test
+        if: ${{ !cancelled() && steps.frozen_install.outcome == 'success' }}
+        run: pnpm test

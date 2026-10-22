@@ -1,0 +1,19 @@
+{
+  "name": "@iam-platform/identity",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@iam-platform/contracts": "workspace:*",
+    "jose": "6.2.12"
+  },
+  "devDependencies": {
+    "vitest": "5.0.5"
+  }
+}
