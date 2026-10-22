@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { connection } from "next/server";
 import { auth0 } from "../lib/auth0";
 import styles from "./page.module.css";
@@ -19,15 +20,15 @@ async function SessionActions() {
           Authentication is provided by Auth0. Authorization and tenant membership must still be
           evaluated by the IAM API.
         </p>
-        <a className={styles.button} href="/auth/logout">Sign out</a>
+        <Link className={styles.button} href="/auth/logout">Sign out</Link>
       </div>
     );
   }
 
   return (
     <div className={styles.actions}>
-      <a className={styles.button} href="/auth/login">Sign in with Auth0</a>
-      <a className={styles.secondary} href="/auth/login?screen_hint=signup">Create account</a>
+      <Link className={styles.button} href="/auth/login">Sign in with Auth0</Link>
+      <Link className={styles.secondary} href="/auth/login?screen_hint=signup">Create account</Link>
     </div>
   );
 }
@@ -35,8 +36,8 @@ async function SessionActions() {
 function SessionActionsFallback() {
   return (
     <div className={styles.actions}>
-      <a className={styles.button} href="/auth/login">Sign in with Auth0</a>
-      <a className={styles.secondary} href="/auth/login?screen_hint=signup">Create account</a>
+      <Link className={styles.button} href="/auth/login">Sign in with Auth0</Link>
+      <Link className={styles.secondary} href="/auth/login?screen_hint=signup">Create account</Link>
     </div>
   );
 }
