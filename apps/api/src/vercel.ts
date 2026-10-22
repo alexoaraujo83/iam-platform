@@ -13,6 +13,25 @@ function requiredEnv(name: string): string {
   return value;
 }
 
+function databaseConnectionString(): string {
+  const connectionString = requiredEnv("DATABASE_URL");
+  let parsed: URL;
+  try {
+    parsed = new URL(connectionString);
+  } catch {
+    throw new Error("invalid_database_connection_string");
+  }
+
+  // Enforce hostname verification for every Neon environment even when an
+  // older Vercel variable still contains sslmode=require. Keep local/non-Neon
+  // PostgreSQL connection settings unchanged.
+  if (parsed.hostname.toLowerCase().endsWith(".neon.tech")) {
+    parsed.searchParams.set("sslmode", "verify-full");
+  }
+
+  return parsed.toString();
+}
+
 function positiveIntegerEnv(name: string, fallback: number): number {
   const raw = process.env[name];
   if (raw === undefined || raw.trim() === "") return fallback;
@@ -57,7 +76,7 @@ function initializeRuntime(): ResolveTenantContext {
     };
 
     const pool = new Pool({
-      connectionString: requiredEnv("DATABASE_URL"),
+      connectionString: databaseConnectionString(),
       max: positiveIntegerEnv("DATABASE_POOL_MAX", 5),
       connectionTimeoutMillis: positiveIntegerEnv("DATABASE_CONNECT_TIMEOUT_MS", 5_000),
       idleTimeoutMillis: positiveIntegerEnv("DATABASE_POOL_IDLE_TIMEOUT_MS", 10_000),
