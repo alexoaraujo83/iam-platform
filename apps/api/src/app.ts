@@ -12,6 +12,7 @@ export interface TenantContextResponse {
   readonly tenantId: string;
   readonly principalId: string;
   readonly membershipId: string;
+  readonly membershipStatus: "active";
   readonly permissions: readonly { readonly resource: string; readonly action: string }[];
   readonly identityEvidence?: {
     readonly issuer: string;
@@ -207,6 +208,7 @@ export function createApiHandler(
         tenantId: context.tenantId,
         principalId: context.principalId,
         membershipId: context.membershipId,
+        membershipStatus: context.membershipStatus,
         permissions: context.permissions,
         ...(context.identityEvidence ? { identityEvidence: context.identityEvidence } : {})
       });
