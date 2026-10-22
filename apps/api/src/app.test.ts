@@ -516,7 +516,10 @@ describe("IAM HTTP API", () => {
 
   it("marks database diagnostics as failed and returns 503 when readiness fails", async () => {
     const response = await requestApi(
-      vi.fn<ResolveTenantContext>().mockResolvedValue(context),
+      vi.fn<ResolveTenantContext>().mockResolvedValue({
+        ...context,
+        permissions: [{ resource: "iam", action: "control_center.read" }]
+      }),
       "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center/runtime",
       { authorization: "Bearer valid-token" },
       async () => false
