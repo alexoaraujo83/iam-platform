@@ -9,6 +9,7 @@ export interface ResolvedMembership {
   readonly tenantId: string;
   readonly principalId: string;
   readonly membershipId: string;
+  readonly membershipStatus: "active";
   readonly permissions: readonly { readonly resource: string; readonly action: string }[];
 }
 
@@ -16,6 +17,7 @@ interface MembershipRow {
   tenant_id: string;
   principal_id: string;
   membership_id: string;
+  membership_status: "active";
 }
 
 interface PermissionRow {
@@ -52,7 +54,7 @@ export async function resolveActiveMembership(
   await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
 
   const membership = await client.query<MembershipRow>(
-    `SELECT m.tenant_id, m.principal_id, m.id AS membership_id
+    `SELECT m.tenant_id, m.principal_id, m.id AS membership_id, m.status AS membership_status
        FROM external_identities ei
        JOIN principals p ON p.id = ei.principal_id AND p.status = 'active'
        JOIN memberships m ON m.principal_id = p.id
@@ -102,6 +104,7 @@ export async function resolveActiveMembership(
     tenantId: row.tenant_id,
     principalId: row.principal_id,
     membershipId: row.membership_id,
+    membershipStatus: row.membership_status,
     permissions
   };
 }
