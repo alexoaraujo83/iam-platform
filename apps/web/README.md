@@ -47,6 +47,12 @@ For local development, configure these exact values on the dedicated Auth0 appli
 
 Add production URLs only after the deployed origin is known. Do not use wildcard callback URLs or origins. Use a dedicated non-production tenant for integration tests; do not reuse another product's tenant or production users.
 
+### Environment reconciliation (Auth0 Next.js SDK v4)
+
+The Web SDK consumes `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_SECRET`, `APP_BASE_URL`, and (to request an access token for the IAM API) `AUTH0_AUDIENCE`. The audited origins are Development `http://localhost:3000`, Preview `https://iam-platform-web-preview.vercel.app`, and Production `https://iam-platform-web.vercel.app`. Auth0 allowlists must use the matching callback (`<origin>/auth/callback`), logout origin, and Web Origin for each environment, without wildcards.
+
+The API has a separate trust boundary: `OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URI`, and `OIDC_ALLOWED_ALGORITHMS=RS256`. Do not substitute Web SDK configuration for the API's trusted OIDC configuration. At the 2026-10-22 audit, `AUTH0_ISSUER_BASE_URL` and `AUTH0_JWKS_URL` remained in Vercel Web environment inventories, but neither is consumed by the audited `src/lib/auth0.ts`. They are tracked as legacy configuration pending rollback-dependency review; this documentation change does not delete them or change secret values.
+
 The Next.js 16 `src/proxy.ts` entry point delegates to the Auth0 SDK, which handles `/auth/login`, `/auth/logout`, `/auth/callback`, and session cookies. The homepage displays the current session when present.
 
 ## Validation and security boundary

@@ -4,6 +4,10 @@ Status: **NÃO PRONTO PARA PRODUÇÃO** até que cada controle obrigatório abai
 
 Este manual separa evidências do CI de evidências da implantação. Passar em um contêiner PostgreSQL descartável ou em um teste local com chaves geradas não comprova que provedor de identidade, banco de produção, segredos, políticas de rede ou recuperação estejam corretos.
 
+## Fonte única de evidências e validade temporal
+
+Mantenha o estado corrente dos gates em [`evidence-ledger.md`](evidence-ledger.md). Para cada prova, registre ambiente, SHA do código efetivamente testado/implantado, timestamp UTC, link da execução, conclusão e limitações. O resultado deve ser revalidado quando o SHA mudar. `READY` na Vercel significa que uma deployment foi construída, mas não comprova callback OAuth, autorização multi-tenant ou aceitação de Production.
+
 ## 1. Configuração e verificação do provedor OIDC
 
 Configurar o provedor somente por variáveis/segredos confiáveis no servidor:

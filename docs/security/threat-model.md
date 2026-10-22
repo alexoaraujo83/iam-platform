@@ -27,3 +27,8 @@ Status: rascunho; deve ser revisado antes do uso em produção.
 - O workflow de CI executa Gitleaks sobre os arquivos do checkout e executa `pnpm audit --audit-level high` sobre o lockfile. A cobertura de todo o histórico Git ainda não foi demonstrada e permanece pendente de uma revisão de baseline histórica. Um controle só é considerado executado quando o job correspondente conclui com sucesso no commit avaliado.
 - Um alerta não deve ser ignorado por simples comentário. Confirmar se é real, remover/rotacionar credenciais reais imediatamente e, para vulnerabilidades aceitas temporariamente, registrar pacote/intervalo afetado, justificativa, mitigação, responsável e data de expiração em uma exceção revisável.
 - Essas verificações de CI não provam que a proteção de push, secret scanning do GitHub ou a configuração de segurança do ambiente implantado estão habilitados. Verificar e registrar esses controles separadamente antes da produção.
+
+
+## Registro canônico de evidências
+
+O estado operacional dos controles está em [`docs/operations/evidence-ledger.md`](../operations/evidence-ledger.md). Este modelo define controles obrigatórios; não é, por si só, prova de aplicação ou deployment. Cada aprovação deve indicar ambiente, SHA exato, execução/artefato verificável, timestamp UTC, resultado e limitações. Um PASS de CI em SHA anterior é histórico, não PASS para um head mais novo. Este modelo continua em rascunho até revisão e aceite explícitos para uma release.
