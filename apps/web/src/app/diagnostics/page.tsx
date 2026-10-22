@@ -54,7 +54,7 @@ async function SessionDiagnostics() {
         <Field label="Sujeito da sessão (sub)" value={session.user.sub ?? "Não presente na sessão"} />
         <Field label="Emissor configurado (não é prova de validação)" value={process.env.OIDC_ISSUER ?? "Não configurado no ambiente web"} />
         <Field label="Audiência solicitada (configuração)" value={process.env.AUTH0_AUDIENCE ?? "Não configurada"} />
-        <Field label="Algoritmos permitidos (configuração)" value={process.env.OIDC_ALLOWED_ALGORITHMS ?? "Não configurados"} />
+        <Field label="Algoritmos permitidos (ambiente web; não confirma a API)" value={process.env.OIDC_ALLOWED_ALGORITHMS?.trim() || "Não definido no ambiente web; configuração efetiva da API não consultada"} />
         <Field label="Expiração da sessão web (UTC)" value={sessionExpiresAt} />
         <Field label="Expiração do token de acesso (UTC)" value={accessTokenExpiresAt} />
         <Field label="Ambiente" value={process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "Não informado"} />
