@@ -107,7 +107,7 @@ export default function AuthorizationProbe() {
       <section aria-labelledby="current-tests-title">
         <h3 id="current-tests-title">Bateria automatizada — execução atual</h3>
         <p className={styles.note}>
-          Executa testes no servidor contra a API usando a sessão atual. Testes que dependem de fixtures isoladas aparecem como não configurados até que o ambiente seja preparado. Nenhum token ou segredo é enviado ao navegador ou exibido.
+          Executa testes no servidor contra a API usando a sessão Auth0 atual. A API só retorna identidade verificada depois de validar a assinatura, o emissor, a audiência, o algoritmo permitido e a expiração do JWT. A rejeição de JWT expirado/adulterado e de issuer/audience incorretos também é coberta por testes criptográficos no CI com chaves efêmeras; o E2E não fabrica nem exibe tokens. Nenhum token ou segredo é enviado ao navegador ou exibido.
         </p>
         <button className={styles.button} type="button" onClick={runProbe} disabled={loading}>
           {loading ? "Executando testes…" : "Executar bateria de testes"}
@@ -132,12 +132,12 @@ export default function AuthorizationProbe() {
                 <li>
                   <strong>Evidência confirmada pela API</strong>
                   <div className={styles.note}>
-                    <strong>Resultado:</strong> {result.authorizationEvidence.permissionGranted ? "Autorizado" : "Permissão não confirmada"}<br />
+                    <strong>Resultado:</strong> {result.authorizationEvidence.permissionGranted ? "Autorizado" : "Permissão não confirmada"}<br /><strong>Assinatura JWT:</strong> Validada pela API antes de emitir esta evidência<br />
                     <strong>Emissor (iss):</strong> <code>{result.authorizationEvidence.issuer}</code><br />
                     <strong>Sujeito (sub):</strong> <code>{result.authorizationEvidence.subject}</code><br />
                     <strong>Audiência (aud):</strong> <code>{Array.isArray(result.authorizationEvidence.audience) ? result.authorizationEvidence.audience.join(", ") : result.authorizationEvidence.audience}</code><br />
                     <strong>Algoritmo validado:</strong> <code>{result.authorizationEvidence.algorithm}</code><br />
-                    <strong>Expiração do token (exp, UTC):</strong> {new Date(result.authorizationEvidence.expiresAt * 1000).toISOString()}<br />
+                    <strong>Expiração do token (exp, UTC):</strong> {new Date(result.authorizationEvidence.expiresAt * 1000).toISOString()} ({result.authorizationEvidence.expiresAt * 1000 > Date.now() ? "válido no momento da execução" : "expirado no momento da exibição"})<br />
                     <strong>Tenant ID:</strong> <code>{result.authorizationEvidence.tenantId}</code><br />
                     <strong>Principal ID:</strong> <code>{result.authorizationEvidence.principalId}</code><br />
                     <strong>Membership ID:</strong> <code>{result.authorizationEvidence.membershipId}</code>
