@@ -112,3 +112,30 @@ O projeto lista um snapshot manual (`snap-morning-violet-b6ttb90w`), usado por u
 | Resultado | `PASS`, `FAIL`, `BLOCKED` ou `NOT CONFIGURED` |
 | Limitações | `<cobertura ausente/dependências>` |
 | Próxima ação | `<ação para encerrar o gate>` |
+
+
+## Revalidação adicional read-only — 2026-10-22T23:56Z
+
+### Roles PostgreSQL e controle de migrations por ambiente
+
+As consultas foram executadas em 2026-10-22 UTC através do conector Neon, autenticado como `iam_owner`. São evidências da configuração das roles no banco, **não** da identidade efetiva do pool ativo na Vercel.
+
+| Ambiente | UTC observado | `iam_runtime` | `iam_app_runtime` | Tabelas de controle de migration conhecidas |
+|---|---|---|---|---|
+| Production / `br-soft-butterfly-b6i5d7bm` | `2026-10-22T23:56:05.398Z` | LOGIN, `BYPASSRLS=true`, `CREATEDB=true`, `CREATEROLE=true`, `REPLICATION=true`; associação a `neon_superuser` | LOGIN, `SUPERUSER=false`, `BYPASSRLS=false`, `CREATEDB/CREATEROLE/REPLICATION=false`; sem role herdada observada | Nenhuma tabela correspondente a `schema_migrations`, `drizzle_migrations`, `knex_migrations`, `sequelize_meta`, `prisma_migrations` ou `typeorm_metadata` |
+| Preview / `br-sweet-firefly-b6mr92zu` | `2026-10-22T23:56:07.936Z` | Mesmos privilégios elevados e associação a `neon_superuser` | Perfil restrito equivalente ao de Production | Nenhuma tabela correspondente aos seis nomes pesquisados |
+| Development / `br-super-term-b6dt6vec` | `2026-10-22T23:56:10.274Z` | Mesmos privilégios elevados e associação a `neon_superuser` | Perfil restrito equivalente ao de Production | Nenhuma tabela correspondente aos seis nomes pesquisados |
+
+A lista de tabelas é uma busca por mecanismos conhecidos, não prova que não exista outro ledger. O mecanismo autoritativo de versão/aplicação de migrations continua por identificar.
+
+### Reconciliação do pool Vercel × workflow de auditoria
+
+- O código de inicialização API inspecionado em `apps/api/src/server.ts` e `apps/api/src/vercel.ts` cria `pg.Pool` a partir de `DATABASE_URL`.
+- Inventário Vercel API consultado com valores secretos redigidos: `DATABASE_URL` tem targets Development, Preview e Production, com comentários que declaram a role `iam_app_runtime` e as branches Neon esperadas. O valor da connection string não foi descriptografado nem exibido.
+- O workflow `.github/workflows/verify-runtime-security.yml` lê `NEON_DATABASE_URL` do GitHub Environment e o script `packages/database/migrations/verify_runtime_security.sql` exige `current_user = 'iam_app_runtime'`. Essa é uma trilha de auditoria separada do `DATABASE_URL` usado pela API.
+- Portanto, a configuração observada é compatível com o uso de `iam_app_runtime` pelo runtime, mas a identidade efetiva do pool Vercel ainda precisa de confirmação live por meio de uma atestação read-only que reporte role/branch esperadas sem expor a connection string ou dados de usuário.
+- A flag `IAM_IDENTITY_BOOTSTRAP_ENABLED` foi observada como `false` em Development, Preview e Production. Não ativar enquanto a validação live e o E2E integrado não passarem.
+
+### Decisão de segurança
+
+**P0 permanece aberto:** a role legada `iam_runtime` continua privilegiada em todos os ambientes, com associação a `neon_superuser`. Nenhum ALTER ROLE, REVOKE, mudança de owner ou alteração de credencial foi executado nesta rodada. Antes de remediá-la, identificar seus consumidores, testar uma correção isolada e preparar rollback; depois, revalidar API/CI em cada ambiente. A ausência de herança a partir de `iam_app_runtime` observada nas consultas diretas não substitui o inventário completo de consumidores da role legada.
