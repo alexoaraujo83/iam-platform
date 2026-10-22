@@ -184,9 +184,9 @@ importers:
       '@iam-platform/database':
         specifier: workspace:*
         version: link:../../packages/database
-      '@iam-platform/identity':
-        specifier: workspace:*
-        version: link:../../packages/identity
+      jose:
+        specifier: 6.2.12
+        version: 6.2.12
       pg:
         specifier: 8.23.1
         version: 8.23.1
