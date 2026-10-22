@@ -18,6 +18,7 @@ O repositório contém contratos de domínio independentes de provedor, avaliaç
 
 - Node.js 24 (compatível com CI; `engines.node` exige `>=24.0.0`)
 - pnpm 12.12.1 (fixado em `packageManager` e no CI)
+- `pnpm-lock.yaml` é o lockfile canônico do monorepo; execute instalações com pnpm e não mantenha um lockfile npm concorrente.
 
 ## Comandos
 

@@ -37,6 +37,12 @@
 - Uma aplicação Auth0 Regular Web está configurada com allowlists explícitas para localhost, Preview e Production, sem curingas. A variável `AUTH0_CLIENT_ID` do Vercel Web cobre os três targets; clientes Auth0 separados por ambiente não foram comprovados nem criados nesta execução. Revisar a política de isolamento antes de considerar esse requisito encerrado.
 - `AUTH0_ISSUER_BASE_URL` e `AUTH0_JWKS_URL` permanecem no inventário Web, agora identificadas por comentários como configuração legada não consumida pelo SDK v4. Não foram removidas porque a ferramenta Vercel disponível não expõe operação de exclusão; a remoção depende de revisão de rollback.
 
+## Política de lockfiles e dependências
+
+- O root declara `packageManager: pnpm@12.12.1`, o CI executa `pnpm install --frozen-lockfile`, e a pesquisa no repositório não encontrou `npm ci` nem referências de código ao `package-lock.json`. A PR #54 remove o `package-lock.json` raiz, mantendo `pnpm-lock.yaml` como fonte única para instalação reproduzível.
+- A definição de TypeScript continua por workspace: root `7.0.2`, Web `^5.9.3`. Não foi feita atualização unificada nem alterado o lockfile pnpm nesta PR; é necessário confirmar a matriz de suporte de `typescript-eslint`, ESLint, Next.js e os scripts de cada workspace antes de convergir versões.
+- Resultado esperado após o merge: nenhuma instalação npm paralela; `pnpm install --frozen-lockfile`, typecheck, lint, testes e build devem continuar passando no SHA da PR e no SHA resultante após integração.
+
 ## Bloqueios abertos
 
 | Prioridade | Bloqueio | Evidência necessária |
