@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extractBearerToken } from "@iam-platform/identity";
 import type { PreAuthSecurityEvent } from "@iam-platform/database";
+import type { RuntimeSnapshot, EvidenceStatus, ControlCenterEnvironment, DatabaseRuntimeIdentityEvidence } from "@iam-platform/contracts";
 
 export interface RequiredTenantPermission {
   readonly resource: string;
@@ -29,6 +30,18 @@ export type ResolveTenantContext = (
   requiredPermission?: RequiredTenantPermission
 ) => Promise<TenantContextResponse | null>;
 export type CheckReadiness = () => Promise<boolean>;
+export interface DatabaseRuntimeIdentity {
+  readonly roleName: string | null;
+  readonly databaseName: string | null;
+  readonly branchId: string | null;
+  readonly projectId: string | null;
+}
+export type GetDatabaseRuntimeIdentity = () => Promise<DatabaseRuntimeIdentity>;
+export type ProvisionIdentity = (accessToken: string) => Promise<void>;
+export interface ApiHandlerOptions {
+  readonly getDatabaseRuntimeIdentity?: GetDatabaseRuntimeIdentity;
+  readonly provisionIdentity?: ProvisionIdentity;
+}
 export type RecordPreAuthSecurityEvent = (event: PreAuthSecurityEvent) => Promise<void>;
 export type ApiRequestHandler = (request: IncomingMessage, response: ServerResponse) => void;
 
@@ -90,6 +103,23 @@ export function createPreAuthAuditLimiter(
   };
 }
 
+function resolveControlCenterEnvironment(): ControlCenterEnvironment {
+  const value = process.env.VERCEL_ENV ?? process.env.APP_ENV ?? process.env.NODE_ENV;
+  if (value === "production" || value === "preview" || value === "development" || value === "staging") return value;
+  return "unknown";
+}
+
+function safeMetadata(value: string | undefined, pattern: RegExp): string | null {
+  const candidate = value?.trim();
+  return candidate && pattern.test(candidate) ? candidate : null;
+}
+
+function safeDeploymentUrl(value: string | undefined): string | null {
+  const candidate = value?.trim();
+  if (!candidate || candidate.length > 255 || !/^[A-Za-z0-9.-]+(?::[0-9]{1,5})?$/.test(candidate)) return null;
+  return `https://${candidate}`;
+}
+
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -103,7 +133,8 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
 export function createApiHandler(
   resolveTenantContext: ResolveTenantContext,
   checkReadiness: CheckReadiness,
-  recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent
+  recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent,
+  options: ApiHandlerOptions = {}
 ): ApiRequestHandler {
   // Bound unauthenticated write amplification per socket peer. Do not trust
   // X-Forwarded-For here; it is only safe behind a separately trusted proxy.
@@ -141,7 +172,7 @@ export function createApiHandler(
     }
   }
 
-  async function routeRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  async function routeRequest(request: IncomingMessage, response: ServerResponse, requestCorrelationId: string): Promise<void> {
     const url = new URL(request.url ?? "/", "http://localhost");
     const routePath = url.pathname === "/api/index" ? (url.searchParams.get("path") ?? "/") : url.pathname;
     if (request.method === "GET" && routePath === "/health") {
@@ -158,15 +189,16 @@ export function createApiHandler(
       return;
     }
 
+    const runtimeDiagnosticsMatch = /^\/v1\/tenants\/([^/]+)\/control-center\/runtime$/.exec(routePath);
     const controlCenterMatch = /^\/v1\/tenants\/([^/]+)\/control-center$/.exec(routePath);
     const contextMatch = /^\/v1\/tenants\/([^/]+)\/context$/.exec(routePath);
-    const match = controlCenterMatch ?? contextMatch;
+    const match = runtimeDiagnosticsMatch ?? controlCenterMatch ?? contextMatch;
     if (request.method !== "GET" || !match?.[1]) {
       sendJson(response, 404, { error: "not_found" });
       return;
     }
 
-    const requiredPermission = controlCenterMatch ? CONTROL_CENTER_PERMISSION : CONTEXT_PERMISSION;
+    const requiredPermission = (controlCenterMatch || runtimeDiagnosticsMatch) ? CONTROL_CENTER_PERMISSION : CONTEXT_PERMISSION;
     const accessToken = extractBearerToken(request.headers.authorization);
     if (!accessToken) {
       const audited = await recordAuthFailure(request, "missing_or_invalid_bearer");
@@ -187,7 +219,7 @@ export function createApiHandler(
     }
 
     try {
-      const context = controlCenterMatch
+      const context = (controlCenterMatch || runtimeDiagnosticsMatch)
         ? await resolveTenantContext(accessToken, tenantId, requiredPermission)
         : await resolveTenantContext(accessToken, tenantId);
       if (!context || context.tenantId !== tenantId) {
@@ -202,6 +234,88 @@ export function createApiHandler(
       )) {
         // Defense in depth: do not rely solely on the resolver honoring its permission argument.
         sendJson(response, 403, { error: "permission_denied" });
+        return;
+      }
+      if (runtimeDiagnosticsMatch) {
+        // Keep the request-scoped correlation identifier explicit in this block.
+        const correlationId = requestCorrelationId;
+        const databaseReady = await checkReadiness().catch(() => false);
+        const environment = resolveControlCenterEnvironment();
+        const now = new Date().toISOString();
+        const commitSha = safeMetadata(process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GITHUB_SHA, /^[0-9a-f]{7,64}$/i);
+        const deploymentId = safeMetadata(process.env.VERCEL_DEPLOYMENT_ID, /^[A-Za-z0-9_-]{1,128}$/);
+        const deploymentUrl = safeDeploymentUrl(process.env.VERCEL_URL);
+        let rawDatabaseIdentity: DatabaseRuntimeIdentity | null = null;
+        try {
+          rawDatabaseIdentity = await options.getDatabaseRuntimeIdentity?.() ?? null;
+        } catch {
+          // Do not expose driver errors or connection details in diagnostics.
+        }
+        const databaseIdentity: DatabaseRuntimeIdentityEvidence = {
+          roleName: safeMetadata(rawDatabaseIdentity?.roleName ?? undefined, /^[a-z_][a-z0-9_]{0,62}$/),
+          databaseName: safeMetadata(rawDatabaseIdentity?.databaseName ?? undefined, /^[a-z_][a-z0-9_]{0,62}$/),
+          branchId: safeMetadata(rawDatabaseIdentity?.branchId ?? undefined, /^br-[a-z0-9-]{8,64}$/),
+          projectId: safeMetadata(rawDatabaseIdentity?.projectId ?? undefined, /^[a-z0-9-]{8,128}$/),
+          expectedBranchId: safeMetadata(process.env.IAM_EXPECTED_NEON_BRANCH_ID, /^br-[a-z0-9-]{8,64}$/),
+          expectedProjectId: safeMetadata(process.env.IAM_EXPECTED_NEON_PROJECT_ID, /^[a-z0-9-]{8,128}$/),
+          verified: false
+        };
+        const identityVerified = databaseIdentity.roleName === "iam_app_runtime"
+          && databaseIdentity.databaseName === "iam_platform"
+          && databaseIdentity.branchId !== null
+          && databaseIdentity.projectId !== null
+          && databaseIdentity.expectedBranchId !== null
+          && databaseIdentity.expectedProjectId !== null
+          && databaseIdentity.branchId === databaseIdentity.expectedBranchId
+          && databaseIdentity.projectId === databaseIdentity.expectedProjectId;
+        const verifiedDatabaseIdentity: DatabaseRuntimeIdentityEvidence = {
+          ...databaseIdentity,
+          verified: identityVerified
+        };
+        const checks = [
+          {
+            id: "api.runtime", name: "API runtime", status: "pass" as const, severity: "info" as const,
+            summary: "Authenticated diagnostics endpoint is responding", environment,
+            source: { system: "iam-platform-api", reference: null, observedAt: now },
+            checkedAt: now, validUntil: new Date(Date.now() + 60_000).toISOString(), correlationId
+          },
+          {
+            id: "database.readiness", name: "Database readiness", status: databaseReady ? "pass" as const : "fail" as const,
+            severity: databaseReady ? "info" as const : "critical" as const,
+            summary: databaseReady ? "Database readiness query succeeded" : "Database readiness query failed", environment,
+            source: { system: "postgresql-readiness", reference: null, observedAt: now },
+            checkedAt: now, validUntil: new Date(Date.now() + 30_000).toISOString(), correlationId
+          },
+          {
+            id: "database.identity", name: "Database runtime identity",
+            status: identityVerified ? "pass" as const : "fail" as const,
+            severity: identityVerified ? "info" as const : "critical" as const,
+            summary: identityVerified
+              ? "Live database role, project and branch match the expected runtime configuration"
+              : "Live database role, project, branch or expected configuration does not match",
+            environment,
+            source: { system: "neon-runtime-identity", reference: verifiedDatabaseIdentity.branchId, observedAt: now },
+            checkedAt: now, validUntil: new Date(Date.now() + 60_000).toISOString(), correlationId
+          },
+          {
+            id: "deployment.metadata", name: "Deployment metadata",
+            status: commitSha && environment !== "unknown" ? "pass" as const : "unknown" as const,
+            severity: "warning" as const,
+            summary: commitSha && environment !== "unknown"
+              ? "Deployment commit and environment metadata are available"
+              : "Deployment commit or environment metadata is unavailable",
+            environment,
+            source: { system: "deployment-platform", reference: commitSha, observedAt: now },
+            checkedAt: now, validUntil: new Date(Date.now() + 300_000).toISOString(), correlationId
+          }
+        ];
+        const overallStatus: EvidenceStatus = checks.some((check) => check.status === "fail")
+          ? "fail" : checks.every((check) => check.status === "pass") ? "pass" : "unknown";
+        const snapshot: RuntimeSnapshot = {
+          id: randomUUID(), environment, capturedAt: now, commitSha, deploymentId, deploymentUrl,
+          databaseIdentity: verifiedDatabaseIdentity, checks, overallStatus, correlationId
+        };
+        sendJson(response, databaseReady && identityVerified ? 200 : 503, snapshot);
         return;
       }
       sendJson(response, 200, {
@@ -244,7 +358,7 @@ export function createApiHandler(
     const startedAt = performance.now();
     const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
     const routeLabel = pathname.replace(
-      /^\/v1\/tenants\/[^/]+\/(control-center|context)$/,
+      /^\/v1\/tenants\/[^/]+\/(control-center\/runtime|control-center|context)$/,
       "/v1/tenants/:tenantId/$1"
     );
     response.setHeader("x-correlation-id", correlationId);
@@ -259,7 +373,7 @@ export function createApiHandler(
         duration_ms: Math.max(0, Math.round(performance.now() - startedAt))
       }));
     });
-    void routeRequest(request, response).catch(() => {
+    void routeRequest(request, response, correlationId).catch(() => {
       if (!response.headersSent) sendJson(response, 500, { error: "internal_server_error" });
       else response.destroy();
     });
@@ -269,7 +383,8 @@ export function createApiHandler(
 export function createApiServer(
   resolveTenantContext: ResolveTenantContext,
   checkReadiness: CheckReadiness,
-  recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent
+  recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent,
+  options: ApiHandlerOptions = {}
 ): Server {
-  return createServer(createApiHandler(resolveTenantContext, checkReadiness, recordPreAuthSecurityEvent));
+  return createServer(createApiHandler(resolveTenantContext, checkReadiness, recordPreAuthSecurityEvent, options));
 }

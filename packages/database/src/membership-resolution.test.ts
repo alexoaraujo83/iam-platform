@@ -15,7 +15,7 @@ describe("resolveActiveMembership", () => {
   it("sets transaction-local tenant context and returns DB-backed permissions", async () => {
     const { client, query } = clientWithResults([
       { rows: [] },
-      { rows: [{ tenant_id: "tenant-a", principal_id: "principal-a", membership_id: "membership-a", membership_status: "active" }] },
+      { rows: [{ tenant_id: "tenant-a", principal_id: "principal-a", membership_id: "membership-a" }] },
       { rows: [{ permission_key: "freight.read" }, { permission_key: "iam:manage" }] }
     ]);
 

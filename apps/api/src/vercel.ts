@@ -45,6 +45,7 @@ function positiveIntegerEnv(name: string, fallback: number): number {
 let resolveTenantContext: ResolveTenantContext | undefined;
 let checkReadiness: (() => Promise<boolean>) | undefined;
 let recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent | undefined;
+let readDatabaseRuntimeIdentity: (() => Promise<{ roleName: string | null; databaseName: string | null; branchId: string | null; projectId: string | null }>) | undefined;
 let initializationError: unknown;
 let initialized = false;
 
@@ -85,6 +86,24 @@ function initializeRuntime(): ResolveTenantContext {
     pool.on("error", () => {
       console.error(JSON.stringify({ level: "error", event: "database_idle_client_error" }));
     });
+    readDatabaseRuntimeIdentity = async () => {
+      const result = await pool.query<{
+        role_name: string | null;
+        database_name: string | null;
+        branch_id: string | null;
+        project_id: string | null;
+      }>(`SELECT current_user AS role_name,
+                current_database() AS database_name,
+                current_setting('neon.branch_id', true) AS branch_id,
+                current_setting('neon.project_id', true) AS project_id`);
+      const row = result.rows[0];
+      return {
+        roleName: row?.role_name ?? null,
+        databaseName: row?.database_name ?? null,
+        branchId: row?.branch_id ?? null,
+        projectId: row?.project_id ?? null
+      };
+    };
     checkReadiness = async () => {
       try {
         await pool.query("SELECT 1");
@@ -153,6 +172,13 @@ const handler = createApiHandler(
     initializeRuntime();
     if (!recordPreAuthSecurityEvent) throw new Error("runtime_initialization_failed");
     await recordPreAuthSecurityEvent(event);
+  },
+  {
+    getDatabaseRuntimeIdentity: async () => {
+      initializeRuntime();
+      if (!readDatabaseRuntimeIdentity) throw new Error("runtime_initialization_failed");
+      return readDatabaseRuntimeIdentity();
+    }
   }
 );
 
