@@ -42,9 +42,8 @@ export async function POST(request: NextRequest) {
     return safeResult(503, { ok: false, code: "diagnostics_not_configured", detail: "Configure IAM_API_BASE_URL and a valid IAM_DIAGNOSTICS_TENANT_ID for this environment." });
   }
 
-  const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim();
+  // Respect Vercel SSO/protection; never attach a bypass secret to diagnostics probes.
   const commonHeaders: Record<string, string> = { Accept: "application/json" };
-  if (bypassSecret) commonHeaders["x-vercel-protection-bypass"] = bypassSecret;
 
   const checks: Check[] = [];
   let apiVersion: string | null = null;
@@ -58,6 +57,7 @@ export async function POST(request: NextRequest) {
       tenantId: string;
       principalId: string;
       membershipId: string;
+      membershipStatus: "active";
       permissionGranted: boolean;
       permissions: string[];
     } | null;
@@ -102,7 +102,8 @@ export async function POST(request: NextRequest) {
           typeof identity.expiresAt === "number" &&
           typeof payload.tenantId === "string" &&
           typeof payload.principalId === "string" &&
-          typeof payload.membershipId === "string"
+          typeof payload.membershipId === "string" &&
+          payload.membershipStatus === "active"
         ) {
           validIdentityEvidence = true;
           authorizationEvidence.current = {
@@ -114,6 +115,7 @@ export async function POST(request: NextRequest) {
             tenantId: payload.tenantId,
             principalId: payload.principalId,
             membershipId: payload.membershipId,
+            membershipStatus: "active",
             permissionGranted,
             permissions: permissions
               .filter((permission) => typeof permission?.resource === "string" && typeof permission?.action === "string")
@@ -216,7 +218,7 @@ export async function POST(request: NextRequest) {
       audience: { status: "accepted_by_api", value: confirmedEvidence.audience },
       algorithm: { status: "accepted_by_api", value: confirmedEvidence.algorithm, reason: "Algoritmo informado pela identidade verificada; a allowlist é aplicada pelo verificador OIDC no servidor." },
       expiration: { status: confirmedEvidence.expiresAt * 1000 > Date.now() ? "valid_at_execution" : "expired", expiresAtUtc: new Date(confirmedEvidence.expiresAt * 1000).toISOString() },
-      membership: { status: "membership_id_returned_not_independently_verified", membershipId: confirmedEvidence.membershipId, reason: "A resposta contém um membershipId, mas este relatório não recebeu um campo explícito de estado da associação; não infere estado ativo apenas pela presença do identificador." },
+      membership: { status: "active_verified_by_database", membershipId: confirmedEvidence.membershipId, reason: "A API retorna membershipStatus=active somente após a consulta PostgreSQL selecionar uma associação com m.status=active, principal ativo e tenant ativo." },
       permissions: { status: confirmedEvidence.permissionGranted ? "granted" : "missing", required: "iam.control_center.read", effective: confirmedEvidence.permissions },
     } : null,
     ciNegativeCoverage: [
