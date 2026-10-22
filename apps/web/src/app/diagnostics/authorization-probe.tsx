@@ -16,6 +16,7 @@ type DiagnosticResult = {
     tenantId: string;
     principalId: string;
     membershipId: string;
+    membershipStatus: "active";
     permissionGranted: boolean;
     permissions: string[];
   } | null;
@@ -137,7 +138,7 @@ export default function AuthorizationProbe() {
                     <strong>Tenant ID:</strong> <code>{result.authorizationEvidence.tenantId}</code><br />
                     <strong>Principal ID:</strong> <code>{result.authorizationEvidence.principalId}</code><br />
                     <strong>Membership ID:</strong> <code>{result.authorizationEvidence.membershipId}</code><br />
-                    <strong>Estado da associação:</strong> Não informado explicitamente; o identificador foi retornado pela API.<br />
+                    <strong>Estado da associação:</strong> {result.authorizationEvidence.membershipStatus === "active" ? "Ativa — confirmado pela consulta PostgreSQL da API" : "Não confirmado"}<br />
                     <strong>Permissões efetivas:</strong> {result.authorizationEvidence.permissions.length ? result.authorizationEvidence.permissions.join(", ") : "Nenhuma retornada"}
                   </div>
                 </li>
