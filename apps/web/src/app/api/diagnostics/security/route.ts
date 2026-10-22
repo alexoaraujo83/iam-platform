@@ -126,7 +126,15 @@ export async function POST(request: NextRequest) {
   const session = await auth0.getSession();
   if (!session) return safeResult(401, { ok: false, code: "login_required" });
 
-  const accessToken = session.tokenSet?.accessToken;
+  let accessToken: string | undefined;
+  try {
+    // Use o SDK para obter/renovar o access token destinado à API conforme a sessão.
+    // Nunca registrar nem devolver o token ao cliente.
+    const tokenResult = await auth0.getAccessToken();
+    accessToken = tokenResult.token;
+  } catch {
+    return safeResult(409, { ok: false, code: "api_access_token_unavailable" });
+  }
   if (!accessToken) {
     return safeResult(409, { ok: false, code: "api_access_token_unavailable" });
   }
