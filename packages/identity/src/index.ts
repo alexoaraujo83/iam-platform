@@ -61,6 +61,9 @@ function validateConfig(config: IdentityProviderConfig): void {
   }
 
   assertHttpsUrl(config.issuer, "invalid_oidc_issuer");
+  if (/[?#]/.test(config.issuer)) {
+    throw new Error("invalid_oidc_issuer");
+  }
   assertHttpsUrl(config.jwksUri, "invalid_oidc_jwks_uri");
 
   if (
