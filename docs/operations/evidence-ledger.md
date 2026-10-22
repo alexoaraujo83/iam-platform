@@ -1,6 +1,6 @@
 # Livro mestre de evidências — IAM Platform
 
-Última consolidação de evidências externas: **2026-10-22**. Este documento é a fonte única de verdade para o estado operacional dos gates. Cada registro é limitado ao ambiente, execução e SHA explicitamente identificados.
+Última consolidação de evidências externas: **2026-10-22**. A comparação de refs nesta versão foi executada por leitura da API GitHub; os SHAs e contagens abaixo são snapshots daquele instante. Este documento é a fonte única de verdade para o estado operacional dos gates. Cada registro é limitado ao ambiente, execução e SHA explicitamente identificados.
 
 ## Regras de validade
 
@@ -46,7 +46,7 @@
 | P1 | Snapshots automáticos sem cronograma explícito nas três branches consultadas | Definir RPO/RTO, política, snapshot e restore testado em branch isolada. |
 | P1 | E2E Auth0/Web/API completo | Login, callback/state/code, persistência da sessão, logout, token válido/expirado, falha de provedor/JWKS, provisionamento idempotente e negação sem membership, com resultados por SHA/UTC. |
 | P1 | Cliente Auth0 por ambiente | Decidir e implementar a separação Web Preview/Production se exigida pela política de isolamento; validar callback/logout/Web Origins no cliente correspondente e provar com E2E. |
-| P1 | Cadeia de PRs | Revalidar base/head/diff cumulativo e checks no SHA atual; manter Draft até concluir os gates requeridos. |
+| P1 | Cadeia de PRs | Comparações read-only em 2026-10-22: #46 vs `main` divergiu (14 exclusivos na feature / 19 em main; merge base `586041e9...`); #53 vs `main` divergiu (80/19; mesmo merge base); #19 vs `main` divergiu (69 exclusivos na feature / 97 em main; merge base `eacc71e9...`). A cadeia #46→#47→#48→#49→#50→#51 está internamente ordenada nos compares (0 atrás), mas o diff #51 é cumulativo e reporta 44 commits exclusivos. | Revisar o diff completo e reconciliar #46 primeiro. Não fazer force-push ou rebase automático; sincronizar descendentes um por vez e rodar CI/Preview no SHA novo. Para #19/#53, inspecionar separadamente o grande delta antes de empilhar. Manter Draft. |
 
 ## Modelo obrigatório para novos registros
 
