@@ -332,6 +332,36 @@ describe("IAM HTTP API", () => {
     );
   });
 
+  it("denies a resolver context bound to a different tenant", async () => {
+    const mismatchedContext: TenantContextResponse = {
+      tenantId: "22222222-2222-4222-8222-222222222222",
+      principalId: "principal-1",
+      membershipId: "membership-1",
+      permissions: [{ resource: "iam", action: "control_center.read" }]
+    };
+    const resolver = vi.fn<ResolveTenantContext>().mockResolvedValue(mismatchedContext);
+    const response = await requestApi(
+      resolver,
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center",
+      { authorization: "Bearer valid-token" }
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "active_membership_required" });
+  });
+
+  it("denies control-center access when the resolver returns context without the required permission", async () => {
+    const resolver = vi.fn<ResolveTenantContext>().mockResolvedValue(context);
+    const response = await requestApi(
+      resolver,
+      "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center",
+      { authorization: "Bearer valid-token" }
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "permission_denied" });
+  });
+
   it("denies control-center access when the required permission is missing", async () => {
     const resolver = vi.fn<ResolveTenantContext>().mockRejectedValue(new Error("authorization_denied"));
     const response = await requestApi(
@@ -486,7 +516,10 @@ describe("IAM HTTP API", () => {
 
   it("marks database diagnostics as failed and returns 503 when readiness fails", async () => {
     const response = await requestApi(
-      vi.fn<ResolveTenantContext>().mockResolvedValue(context),
+      vi.fn<ResolveTenantContext>().mockResolvedValue({
+        ...context,
+        permissions: [{ resource: "iam", action: "control_center.read" }]
+      }),
       "/v1/tenants/11111111-1111-4111-8111-111111111111/control-center/runtime",
       { authorization: "Bearer valid-token" },
       async () => false

@@ -221,8 +221,18 @@ export function createApiHandler(
       const context = (controlCenterMatch || runtimeDiagnosticsMatch)
         ? await resolveTenantContext(accessToken, tenantId, requiredPermission)
         : await resolveTenantContext(accessToken, tenantId);
-      if (!context) {
+      if (!context || context.tenantId !== tenantId) {
+        // Defense in depth: never return a context for a different tenant than requested.
         sendJson(response, 403, { error: "active_membership_required" });
+        return;
+      }
+      if (!context.permissions.some(
+        (permission) =>
+          permission.resource === requiredPermission.resource &&
+          permission.action === requiredPermission.action
+      )) {
+        // Defense in depth: do not rely solely on the resolver honoring its permission argument.
+        sendJson(response, 403, { error: "permission_denied" });
         return;
       }
       if (runtimeDiagnosticsMatch) {
