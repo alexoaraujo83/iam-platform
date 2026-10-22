@@ -46,6 +46,49 @@
 - A definição de TypeScript continua por workspace: root `7.0.2`, Web `^5.9.3`. Não foi feita atualização unificada nem alterado o lockfile pnpm nesta PR; é necessário confirmar a matriz de suporte de `typescript-eslint`, ESLint, Next.js e os scripts de cada workspace antes de convergir versões.
 - Resultado esperado após o merge: nenhuma instalação npm paralela; `pnpm install --frozen-lockfile`, typecheck, lint, testes e build devem continuar passando no SHA da PR e no SHA resultante após integração.
 
+## Evidência Neon adicional — 2026-10-22T23:12:02.941Z
+
+### Conexão direta de runtime e privilégios efetivos (consultas read-only)
+
+As consultas foram executadas usando a role solicitada ao conector Neon; **não** foram executadas via processo/API Vercel. Portanto comprovam credenciais e privilégio efetivo dessas roles no banco, mas não substituem um endpoint da API que registre a identidade real do seu pool.
+
+| Ambiente | Branch Neon | `current_user=session_user` | Atributos efetivos de `iam_app_runtime` | Resultado |
+|---|---|---|---|---|
+| Development | `br-super-term-b6dt6vec` | `iam_app_runtime` | `SUPERUSER=false`, `CREATEDB=false`, `CREATEROLE=false`, `REPLICATION=false`, `BYPASSRLS=false` | PASS para a credencial consultada |
+| Preview | `br-sweet-firefly-b6mr92zu` | `iam_app_runtime` | `SUPERUSER=false`, `CREATEDB=false`, `CREATEROLE=false`, `REPLICATION=false`, `BYPASSRLS=false` | PASS para a credencial consultada |
+| Production | `br-soft-butterfly-b6i5d7bm` | `iam_app_runtime` | `SUPERUSER=false`, `CREATEDB=false`, `CREATEROLE=false`, `REPLICATION=false`, `BYPASSRLS=false` | PASS para a credencial consultada |
+
+Em todos os três ambientes, `iam_app_runtime` tem SELECT de principals, não tem INSERT em principals e tem INSERT em `audit_events`. A conexão direta não mostrou associação herdada com `iam_owner` ou `iam_runtime`; a função de provisionamento não pode ser executada por `iam_app_runtime` em Preview.
+
+**Bloqueio separado — role legada:** `iam_runtime` continua com `CREATEDB=true`, `CREATEROLE=true`, `REPLICATION=true` e `BYPASSRLS=true` em Development, Preview e Production. Nenhuma alteração foi aplicada à role. A leitura direta mostrou que a credencial testada de `iam_app_runtime` não herda essa role, mas isso não justifica deixar a role legada privilegiada sem plano de desativação e sem confirmar todos os consumidores.
+
+### Limite de privilégio do provisionamento — Preview
+
+A consulta da role `iam_identity_provisioner_login` na branch Preview confirmou `current_user=session_user=iam_identity_provisioner_login`, com `BYPASSRLS=false`, sem privilégios de criação/replicação e branch ID igual ao esperado para Preview.
+
+A função `public.provision_external_identity(text,text)` foi observada com owner dedicado `iam_identity_provisioner_owner`, `SECURITY DEFINER`, `search_path=pg_catalog, public` e ACL restrita ao owner e à role executor. A role de provisionamento consegue executar a função, mas não tem SELECT/INSERT direto em `principals` ou `external_identities`, não tem INSERT em `memberships` nem CREATE no schema public. `iam_app_runtime` e `iam_runtime` não conseguem executar a função. Uma tentativa de SELECT direto de `public.principals` com a role de provisionamento foi negada pelo PostgreSQL.
+
+Teste SQL sintético no Preview, executado em 2026-10-22T23:12:02.941Z, usou apenas um issuer/subject de teste exclusivos:
+- Duas chamadas à função retornaram o mesmo principal.
+- Foi encontrado exatamente um principal e uma identidade externa correspondentes.
+- A identidade não tinha membership.
+- O contador de eventos `identity.provisioned` aumentou de zero para um.
+- O teste provou o contrato SQL no Preview, não o callback OAuth nem a integração Web/API/Auth0 ponta a ponta. Nenhum token ou claim de usuário real foi usado.
+
+Em branch isolada `iam-provisioning-test-20261021b` (`br-icy-violet-b6rh3mlk`), quatro chamadas concorrentes para uma identidade sintética também retornaram o mesmo principal; a verificação posterior encontrou uma identidade externa, um principal, zero memberships e um evento de criação. Esse teste de concorrência foi executado pelo owner administrativo da branch de teste porque a credencial da role de provisionamento não estava configurada nessa branch; não o interpretar como prova de autenticação direta dessa role.
+
+### Snapshots e recuperação
+
+| Ambiente | Branch | Cronograma automático | Evidência |
+|---|---|---|---|
+| Development | `br-super-term-b6dt6vec` | Nenhum (`schedule=[]`) | Consulta da API Neon em 2026-10-22T23:12:02.941Z |
+| Preview | `br-sweet-firefly-b6mr92zu` | Nenhum (`schedule=[]`) | Consulta da API Neon em 2026-10-22T23:12:02.941Z |
+| Production | `br-soft-butterfly-b6i5d7bm` | Nenhum (`schedule=[]`) | Consulta da API Neon em 2026-10-22T23:12:02.941Z |
+
+O projeto lista um snapshot manual (`snap-morning-violet-b6ttb90w`), usado por uma branch de validação de restore; isso não constitui backup agendado. A API/documentação oficial Neon informa que cronogramas de snapshots exigem plano pago, e o plano Free limita snapshots manuais a um, além de cobrar armazenamento de snapshots. Nenhum cronograma foi configurado, não houve alteração de billing e nenhum snapshot adicional foi criado. Isso permanece **BLOCKED por requisito de plano/custo**, não por falha de configuração:
+- [Neon API — Update backup schedule](https://api-docs.neon.tech/reference/setsnapshotschedule)
+- [Neon — limites e preços de snapshots por plano](https://github.com/neondatabase/website/blob/main/content/docs/introduction/plans.md)
+
 ## Bloqueios abertos
 
 | Prioridade | Bloqueio | Evidência necessária |
