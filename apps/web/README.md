@@ -49,6 +49,23 @@ Add production URLs only after the deployed origin is known. Do not use wildcard
 
 The Next.js 16 `src/proxy.ts` entry point delegates to the Auth0 SDK, which handles `/auth/login`, `/auth/logout`, `/auth/callback`, and session cookies. The homepage displays the current session when present.
 
+## Preview diagnostics — every Preview branch
+
+The `/diagnostics` page has two server-side batteries: API authorization/security and synthetic OAuth callback-handler checks. Configure the following environment variables on the **iam-platform-web Vercel project with target Preview and no Git-branch restriction** so every Preview deployment inherits the diagnostics configuration. Do not apply diagnostic fixtures or test tokens to Production or Development.
+
+| Variable | Preview value / rule |
+| --- | --- |
+| `IAM_API_BASE_URL` | Trusted IAM API Preview URL reachable from all web Preview deployments. It must be a stable Preview alias or another intentionally shared Preview API endpoint, not a single ephemeral deployment URL. |
+| `IAM_DIAGNOSTICS_TENANT_ID` | `4a2f0b2e-37c1-4d0a-a211-8b6d7f2e9001` — seeded positive case with the required permission. |
+| `IAM_DIAGNOSTICS_NO_MEMBERSHIP_TENANT_ID` | `4a2f0b2e-37c1-4d0a-a211-8b6d7f2e9101` — seeded tenant with no memberships. |
+| `IAM_DIAGNOSTICS_NO_PERMISSION_TENANT_ID` | `4a2f0b2e-37c1-4d0a-a211-8b6d7f2e9201` — seeded active membership without `iam.control_center.read`. |
+| `IAM_DIAGNOSTICS_OTHER_TENANT_ID` | `4a2f0b2e-37c1-4d0a-a211-8b6d7f2e9301` — isolated tenant with no membership for the current principal. |
+| `IAM_DIAGNOSTICS_EXPIRED_ACCESS_TOKEN` | Keep unset until a genuinely expired JWT with a valid signature from a trusted test issuer is available. The value is used server-side only and must never be returned to the browser or logged. |
+
+The four tenant IDs above were checked against the Neon `preview` branch. Verify that every Preview API deployment uses the same compatible Preview database/fixtures. The primary tenant must resolve to an active membership with `iam.control_center.read` for the authenticated test user. Never fabricate an expired token by editing its payload; that tests signature rejection rather than expiry.
+
+Vercel Preview protection must remain enabled. If an API request returns HTML or a platform protection response instead of JSON, the test is **inconclusive**, not a permission failure. The callback battery tests synthetic handler cases only; it does not replace a real OAuth E2E test with provider, cookies, `state`, and authorization-code exchange.
+
 ## Validation and security boundary
 
 Run repository checks from the root:

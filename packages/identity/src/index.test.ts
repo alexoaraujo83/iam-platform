@@ -20,7 +20,7 @@ async function makeFixture() {
 
   async function token(overrides: {
     issuer?: string;
-    audience?: string;
+    audience?: string | string[];
     subject?: string;
     expiresAt?: number;
     issuedAt?: number;
@@ -82,6 +82,15 @@ describe("OIDC verifier", () => {
     const fixture = await makeFixture();
     const verifier = createOidcVerifier(config, fixture.keySet);
     await expect(verifier(await fixture.token({ audience: "urn:other-api" }))).rejects.toThrow();
+  });
+
+  it("accepts an audience array when it contains the configured API audience", async () => {
+    const fixture = await makeFixture();
+    const verifier = createOidcVerifier(config, fixture.keySet);
+    const identity = await verifier(await fixture.token({
+      audience: ["urn:another-api", config.audience]
+    }));
+    expect(identity.audience).toEqual(["urn:another-api", config.audience]);
   });
 
   it("rejects expired tokens", async () => {

@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
       }
       const codeMatches = !expectedError || payload.error === expectedError;
       const expectedBehavior = response.status === expectedStatus && codeMatches &&
-        (!requireControlCenterPermission || permissionGranted);
+        (!requireControlCenterPermission || (permissionGranted && authorizationEvidence !== null));
       checks.push({
         id,
         label,
@@ -129,7 +129,9 @@ export async function POST(request: NextRequest) {
               ? `Código inesperado: ${typeof payload.error === "string" ? payload.error : "ausente"}.`
               : requireControlCenterPermission && !permissionGranted
                 ? "HTTP 200 sem a permissão iam.control_center.read na resposta."
-                : "O endpoint retornou o status e o código de negação esperados.",
+                : requireControlCenterPermission && authorizationEvidence === null
+                  ? "HTTP 200 sem metadados suficientes de identidade verificada; evidência positiva incompleta."
+                  : "O endpoint retornou o status e o código de negação esperados.",
       });
     } catch {
       checks.push({ id, label, expectedStatus, status: "blocked", detail: "API indisponível ou inacessível; teste inconclusivo." });

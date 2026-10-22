@@ -41,7 +41,22 @@ function SessionActionsFallback() {
   );
 }
 
-export default function Home() {
+type HomeSearchParams = Promise<{
+  identity_bootstrap?: string | string[];
+}>;
+
+async function IdentityBootstrapStatus({ searchParams }: { searchParams: HomeSearchParams }) {
+  const params = await searchParams;
+  if (params.identity_bootstrap !== "unavailable") return null;
+
+  return (
+    <p className={styles.note} role="status">
+      Sign-in succeeded, but identity synchronization is unavailable. No tenant access was granted; retry later or contact an administrator.
+    </p>
+  );
+}
+
+export default function Home({ searchParams }: { searchParams: HomeSearchParams }) {
   return (
     <main className={styles.page}>
       <section className={styles.panel} aria-labelledby="page-title">
@@ -50,6 +65,9 @@ export default function Home() {
         <p className={styles.description}>
           Centralize identity, organization membership, and access policy management.
         </p>
+        <Suspense fallback={null}>
+          <IdentityBootstrapStatus searchParams={searchParams} />
+        </Suspense>
 
         <Suspense fallback={<SessionActionsFallback />}>
           <SessionActions />
