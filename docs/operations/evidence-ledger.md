@@ -17,12 +17,25 @@
 | GitHub Actions CI — PR #51 | `feat/auth-evidence-report` | `ace2be5980b3c9ecac6003f0c3996bf9e2611779`; [run 39855902375](https://github.com/alexoaraujo83/iam-platform/actions/runs/39855902375) | `2026-10-22T21:17:27Z` (atualização/conclusão registrada) | PASS para esse SHA | Não prova o head da PR #53 (`fe4576aa...`) nem o `main` atual. |
 | Vercel Web deployment `dpl_2FZvJzuetkqZfrM7fnynFrd6ZcH1` | Preview / branch `feat/auth-evidence-report` | `ace2be5980b3c9ecac6003f0c3996bf9e2611779` | `2026-10-22T21:16:31Z` | READY | Não equivale a Production nem inclui commits posteriores. |
 | Vercel API deployment `dpl_BB1UF86Giq1vQhsMAWamurw2UvPJ` | Preview / branch `feat/auth-evidence-report` | `ace2be5980b3c9ecac6003f0c3996bf9e2611779` | `2026-10-22T21:16:31Z` | READY | Diferente do head atual da PR #53; o E2E de bootstrap não pode ser marcado PASS até deployment do código integrado e teste live. |
+| GitHub Actions CI — PR #54 | `chore/security-workflow-docs-cleanup-20261022` | `b65311f4ad7bf301126fddbf14f541303fb0024c`; [run 39866464188](https://github.com/alexoaraujo83/iam-platform/actions/runs/39866464188) | `2026-10-22T22:40:02Z` | PASS | Exatamente o SHA registrado; uma atualização posterior do próprio ledger requer novo CI e nova conferência. |
+| Vercel Web — PR #54 | Preview branch `chore/security-workflow-docs-cleanup-20261022` | `b65311f4ad7bf301126fddbf14f541303fb0024c`; [deployment `dpl_J1ntBjhQYkDiKUzPeWCE6Cs6X4BC`](https://vercel.com/alexoaraujo83-8387s-projects/iam-platform-web/J1ntBjhQYkDiKUzPeWCE6Cs6X4BC) | `2026-10-22T22:38:43.711Z` (criação) | READY | Check Vercel verde para esse SHA; deployment Preview não é produção nem prova E2E Auth0. |
+| Vercel API — PR #54 | Preview branch `chore/security-workflow-docs-cleanup-20261022` | `b65311f4ad7bf301126fddbf14f541303fb0024c`; [deployment `dpl_Bk5GECYE9G636gkFkQdYbv5WJf6T`](https://vercel.com/alexoaraujo83-8387s-projects/iam-platform-api/Bk5GECYE9G636gkFkQdYbv5WJf6T) | `2026-10-22T22:38:43.668Z` (criação) | READY | Check Vercel verde para esse SHA; deployment Preview não comprova bootstrap Auth0→Neon. |
 | Auth0 — allowlists | Tenant `iam-platform.us.auth0.com`; aplicativo Regular Web | Configuração lida no painel em 22/10/2026 | Não fornecido pela leitura | CONFERIDO | Callback: `https://iam-platform-web.vercel.app/auth/callback`, `https://iam-platform-web-preview.vercel.app/auth/callback`, `http://localhost:3000/auth/callback`. Logout e Web Origins usam os três origins correspondentes, sem curingas. |
 | Vercel Web — variáveis não secretas | Development / Preview / Production | Inventário lido em 22/10/2026 | Não exposto no registro da variável | COERENTE nos valores conferidos | `AUTH0_DOMAIN=iam-platform.us.auth0.com`, `AUTH0_AUDIENCE=https://iam-platform-api` e `APP_BASE_URL` correspondem aos três origins. Valores secretos não foram lidos. |
 | Vercel API — OIDC | Development / Preview / Production | Inventário lido em 22/10/2026 | Não exposto no registro da variável | COERENTE nos valores conferidos | `OIDC_ISSUER=https://iam-platform.us.auth0.com/`, `OIDC_AUDIENCE=https://iam-platform-api`, `OIDC_JWKS_URI=https://iam-platform.us.auth0.com/.well-known/jwks.json`, `OIDC_ALLOWED_ALGORITHMS=RS256`. |
 | Provisionamento de identidade | Web/API Vercel | `IAM_IDENTITY_BOOTSTRAP_ENABLED=false` em todos os targets observados; `IDENTITY_PROVISIONER_DATABASE_URL` apenas em Preview da API | 22/10/2026 | FAIL-CLOSED preservado | Não habilitar antes do E2E real com código integrado e verificação de role/branch/projeto Neon. |
 | Token expirado — diagnóstico live | Web Preview | `IAM_DIAGNOSTICS_EXPIRED_ACCESS_TOKEN` está cadastrada, mas a bateria não aceita a fixture como JWT válido no estado reportado anteriormente | Evidência pendente | NOT CONFIGURED | Corrigir fixture de teste no ambiente isolado e provar rejeição HTTP real, sem armazenar token de produção. |
 | Verificação runtime do banco | GitHub Actions → ambiente `neon-<target>` | `.github/workflows/verify-runtime-security.yml` | Preencher na próxima execução | DISPATCHED ON DEMAND | Executar em cada ambiente separadamente e registrar URL, SHA e resultado. Um PASS em Development não prova Preview/Production. |
+
+
+
+## Sinais de observabilidade e configuração ainda não aceitos como gate aprovado
+
+- A página Control Center consultada em `2026-10-22T21:30:28.985Z` reportou um probe positivo HTTP 200 e membership ativo confirmado no PostgreSQL, mas o SHA exato da Web/API não foi capturado nessa leitura. Tratar como sinal histórico, não como PASS vinculado ao head atual.
+- A página ainda exibe `Live telemetry not connected` e módulos `DESIGNED · NOT VERIFIED`. Não declarar observabilidade operacional até cada card usar uma fonte real, com timestamp, origem e tratamento explícito de dado ausente.
+- O token expirado continua `NOT CONFIGURED`: a fixture em Preview não é um JWT válido. Testes criptográficos de CI não substituem a rejeição live HTTP 401.
+- Uma aplicação Auth0 Regular Web está configurada com allowlists explícitas para localhost, Preview e Production, sem curingas. A variável `AUTH0_CLIENT_ID` do Vercel Web cobre os três targets; clientes Auth0 separados por ambiente não foram comprovados nem criados nesta execução. Revisar a política de isolamento antes de considerar esse requisito encerrado.
+- `AUTH0_ISSUER_BASE_URL` e `AUTH0_JWKS_URL` permanecem no inventário Web, agora identificadas por comentários como configuração legada não consumida pelo SDK v4. Não foram removidas porque a ferramenta Vercel disponível não expõe operação de exclusão; a remoção depende de revisão de rollback.
 
 ## Bloqueios abertos
 
@@ -32,6 +45,7 @@
 | P1 | `public.schema_migrations` não encontrado nas branches consultadas | Confirmar se há mecanismo alternativo autoritativo; caso contrário, introduzir controle reproduzível de migrations. |
 | P1 | Snapshots automáticos sem cronograma explícito nas três branches consultadas | Definir RPO/RTO, política, snapshot e restore testado em branch isolada. |
 | P1 | E2E Auth0/Web/API completo | Login, callback/state/code, persistência da sessão, logout, token válido/expirado, falha de provedor/JWKS, provisionamento idempotente e negação sem membership, com resultados por SHA/UTC. |
+| P1 | Cliente Auth0 por ambiente | Decidir e implementar a separação Web Preview/Production se exigida pela política de isolamento; validar callback/logout/Web Origins no cliente correspondente e provar com E2E. |
 | P1 | Cadeia de PRs | Revalidar base/head/diff cumulativo e checks no SHA atual; manter Draft até concluir os gates requeridos. |
 
 ## Modelo obrigatório para novos registros
