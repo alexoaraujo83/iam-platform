@@ -219,6 +219,7 @@ describe.skipIf(!enabled)("PostgreSQL tenant RLS integration", () => {
       tenantId: tenantA,
       principalId: principalA,
       membershipId: membershipA,
+      membershipStatus: "active",
       permissions: [{ resource: "freight", action: "read" }]
     });
   });

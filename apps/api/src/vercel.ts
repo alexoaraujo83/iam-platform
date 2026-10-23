@@ -13,6 +13,25 @@ function requiredEnv(name: string): string {
   return value;
 }
 
+function databaseConnectionString(): string {
+  const connectionString = requiredEnv("DATABASE_URL");
+  let parsed: URL;
+  try {
+    parsed = new URL(connectionString);
+  } catch {
+    throw new Error("invalid_database_connection_string");
+  }
+
+  // Enforce hostname verification for every Neon environment even when an
+  // older Vercel variable still contains sslmode=require. Keep local/non-Neon
+  // PostgreSQL connection settings unchanged.
+  if (parsed.hostname.toLowerCase().endsWith(".neon.tech")) {
+    parsed.searchParams.set("sslmode", "verify-full");
+  }
+
+  return parsed.toString();
+}
+
 function positiveIntegerEnv(name: string, fallback: number): number {
   const raw = process.env[name];
   if (raw === undefined || raw.trim() === "") return fallback;
@@ -26,6 +45,7 @@ function positiveIntegerEnv(name: string, fallback: number): number {
 let resolveTenantContext: ResolveTenantContext | undefined;
 let checkReadiness: (() => Promise<boolean>) | undefined;
 let recordPreAuthSecurityEvent: RecordPreAuthSecurityEvent | undefined;
+let readDatabaseRuntimeIdentity: (() => Promise<{ roleName: string | null; databaseName: string | null; branchId: string | null; projectId: string | null }>) | undefined;
 let initializationError: unknown;
 let initialized = false;
 
@@ -57,7 +77,7 @@ function initializeRuntime(): ResolveTenantContext {
     };
 
     const pool = new Pool({
-      connectionString: requiredEnv("DATABASE_URL"),
+      connectionString: databaseConnectionString(),
       max: positiveIntegerEnv("DATABASE_POOL_MAX", 5),
       connectionTimeoutMillis: positiveIntegerEnv("DATABASE_CONNECT_TIMEOUT_MS", 5_000),
       idleTimeoutMillis: positiveIntegerEnv("DATABASE_POOL_IDLE_TIMEOUT_MS", 10_000),
@@ -66,6 +86,24 @@ function initializeRuntime(): ResolveTenantContext {
     pool.on("error", () => {
       console.error(JSON.stringify({ level: "error", event: "database_idle_client_error" }));
     });
+    readDatabaseRuntimeIdentity = async () => {
+      const result = await pool.query<{
+        role_name: string | null;
+        database_name: string | null;
+        branch_id: string | null;
+        project_id: string | null;
+      }>(`SELECT current_user AS role_name,
+                current_database() AS database_name,
+                current_setting('neon.branch_id', true) AS branch_id,
+                current_setting('neon.project_id', true) AS project_id`);
+      const row = result.rows[0];
+      return {
+        roleName: row?.role_name ?? null,
+        databaseName: row?.database_name ?? null,
+        branchId: row?.branch_id ?? null,
+        projectId: row?.project_id ?? null
+      };
+    };
     checkReadiness = async () => {
       try {
         await pool.query("SELECT 1");
@@ -78,16 +116,40 @@ function initializeRuntime(): ResolveTenantContext {
       await appendPreAuthSecurityEvent(pool, event);
     };
 
-    resolveTenantContext = async (accessToken, tenantId, requiredPermission?: RequiredTenantPermission) =>
-      withAuthenticatedTenant(
+    resolveTenantContext = async (accessToken, tenantId, requiredPermission?: RequiredTenantPermission) => {
+      // Keep the verified claims request-local; the membership resolver intentionally
+      // persists only the stable (issuer, subject) identity key and tenant membership.
+      let verifiedIdentity: Awaited<ReturnType<typeof verifyAccessToken>> | undefined;
+      const verifyAndCaptureIdentity = async (token: string) => {
+        const identity = await verifyAccessToken(token);
+        verifiedIdentity = identity;
+        return identity;
+      };
+
+      return withAuthenticatedTenant(
         pool,
-        verifyAccessToken,
+        verifyAndCaptureIdentity,
         accessToken,
         tenantId,
         requiredPermission ?? { resource: "iam", action: "context.read" },
         (authorizationContext, permission) => authorize(authorizationContext, permission),
-        async (_client, membership) => membership
+        async (_client, membership) => {
+          // withAuthenticatedTenant invokes the verifier before this callback.
+          // Fail closed rather than emitting incomplete identity evidence if that contract changes.
+          if (!verifiedIdentity) throw new Error("verified_identity_unavailable");
+          return {
+            ...membership,
+            identityEvidence: {
+              issuer: verifiedIdentity.issuer,
+              subject: verifiedIdentity.subject,
+              audience: verifiedIdentity.audience,
+              algorithm: verifiedIdentity.algorithm,
+              expiresAt: verifiedIdentity.expiresAt
+            }
+          };
+        }
       );
+    };
     return resolveTenantContext;
   } catch (error) {
     initializationError = error;
@@ -110,6 +172,13 @@ const handler = createApiHandler(
     initializeRuntime();
     if (!recordPreAuthSecurityEvent) throw new Error("runtime_initialization_failed");
     await recordPreAuthSecurityEvent(event);
+  },
+  {
+    getDatabaseRuntimeIdentity: async () => {
+      initializeRuntime();
+      if (!readDatabaseRuntimeIdentity) throw new Error("runtime_initialization_failed");
+      return readDatabaseRuntimeIdentity();
+    }
   }
 );
 

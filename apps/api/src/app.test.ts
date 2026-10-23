@@ -6,6 +6,7 @@ const context: TenantContextResponse = {
   tenantId: "11111111-1111-4111-8111-111111111111",
   principalId: "principal-1",
   membershipId: "membership-1",
+  membershipStatus: "active",
   permissions: [{ resource: "iam", action: "context.read" }]
 };
 const servers: ReturnType<typeof createApiServer>[] = [];
@@ -337,6 +338,7 @@ describe("IAM HTTP API", () => {
       tenantId: "22222222-2222-4222-8222-222222222222",
       principalId: "principal-1",
       membershipId: "membership-1",
+      membershipStatus: "active",
       permissions: [{ resource: "iam", action: "control_center.read" }]
     };
     const resolver = vi.fn<ResolveTenantContext>().mockResolvedValue(mismatchedContext);

@@ -7,6 +7,7 @@ const context = {
   tenantId,
   principalId: "principal-1",
   membershipId: "membership-1",
+  membershipStatus: "active" as const,
   permissions: [{ resource: "iam", action: "control_center.read" }]
 };
 const servers: ReturnType<typeof createApiServer>[] = [];
