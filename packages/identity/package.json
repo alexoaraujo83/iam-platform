@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@iam-platform/contracts": "workspace:*",
-    "jose": "6.2.12"
+    "jose": "6.2.14"
   },
   "devDependencies": {
     "vitest": "5.0.5"
